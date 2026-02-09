@@ -1,0 +1,186 @@
+"use client";
+
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { ArrowRight, Database, Code, BarChart3, MessageSquare, Terminal } from "lucide-react";
+
+import { ScrollingText } from "@/components/ui/scrolling-text";
+
+export default function LandingPage() {
+  return (
+    <div className="min-h-screen bg-black text-white selection:bg-neon-green/20 selection:text-neon-green overflow-hidden">
+      {/* Hero Section */}
+      <section className="relative pt-32 pb-16 md:pt-48 md:pb-32">
+         {/* Background Glows */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-neon-green/10 rounded-[100%] blur-[120px] -z-10 pointer-events-none opacity-50" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-neon-green/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
+        
+        <div className="container mx-auto px-4 text-center relative z-10">
+          <div className="inline-flex items-center gap-2 rounded-full border border-neon-green/20 bg-neon-green/5 px-3 py-1 text-xs font-medium text-neon-green mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700 backdrop-blur-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-neon-green opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-neon-green"></span>
+            </span>
+            XBase is now in public beta
+          </div>
+          
+          <h1 className="text-5xl md:text-8xl font-bold tracking-tight mb-6 text-white animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150 relative">
+            AI Control Plane <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-neon-green to-emerald-400 drop-shadow-[0_0_15px_rgba(74,222,128,0.3)]">
+              for Databases & Workflows
+            </span>
+          </h1>
+          
+          <p className="text-lg md:text-xl text-neutral-400 max-w-2xl mx-auto mb-10 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300">
+            Natural Language to SQL, Python extraction, and automated visualization. 
+            Transform your data workflow with safety and precision.
+          </p>
+          
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-500 mb-16">
+            <Link href="/auth/sign-up">
+              <Button size="lg" className="h-14 px-8 text-lg bg-neon-green text-black hover:bg-neon-green/90 shadow-[0_0_20px_rgba(74,222,128,0.4)] hover:shadow-[0_0_30px_rgba(74,222,128,0.6)] transition-all font-bold rounded-xl border border-neon-green/50">
+                Start Building Now
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </Link>
+            <Link href="#features">
+              <Button variant="outline" size="lg" className="h-14 px-8 text-lg border-white/10 bg-white/5 text-white hover:bg-white/10 hover:border-white/20 hover:text-white rounded-xl backdrop-blur-sm">
+                Explore Features
+              </Button>
+            </Link>
+          </div>
+
+          <ScrollingText />
+
+        </div>
+      </section>
+
+      {/* Features Grid */}
+      <section id="features" className="py-24 relative">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Core Capabilities
+            </h2>
+            <p className="text-neutral-400">Everything you need to master your data.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Feature 1 */}
+            <div className="group rounded-2xl border border-white/5 bg-white/[0.02] p-8 transition-all hover:bg-white/[0.05] hover:border-neon-green/30 hover:shadow-[0_0_30px_rgba(74,222,128,0.1)] relative overflow-hidden backdrop-blur-sm">
+              <div className="absolute inset-0 bg-gradient-to-br from-neon-green/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="h-12 w-12 rounded-xl bg-neon-green/10 flex items-center justify-center mb-6 text-neon-green border border-neon-green/20 group-hover:scale-110 transition-transform duration-300">
+                <Database className="h-6 w-6" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 text-white group-hover:text-neon-green transition-colors">Natural Language → SQL</h3>
+              <p className="text-neutral-400 mb-4 z-10 relative">
+                Write intent in plain English. Generate safe, explainable SQL. 
+                Always preview before execution with configurable permissions.
+              </p>
+              <ul className="space-y-2 text-sm text-neutral-500 relative z-10">
+                <li className="flex items-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neon-green mr-2 shadow-[0_0_5px_var(--color-neon-green)]" />
+                  No raw unrestricted SQL
+                </li>
+                <li className="flex items-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neon-green mr-2 shadow-[0_0_5px_var(--color-neon-green)]" />
+                  Confirmation required check
+                </li>
+              </ul>
+            </div>
+
+            {/* Feature 2 */}
+            <div className="group rounded-2xl border border-white/5 bg-white/[0.02] p-8 transition-all hover:bg-white/[0.05] hover:border-neon-green/30 hover:shadow-[0_0_30px_rgba(74,222,128,0.1)] relative overflow-hidden backdrop-blur-sm">
+               <div className="absolute inset-0 bg-gradient-to-br from-neon-green/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="h-12 w-12 rounded-xl bg-neon-green/10 flex items-center justify-center mb-6 text-neon-green border border-neon-green/20 group-hover:scale-110 transition-transform duration-300">
+                <Code className="h-6 w-6" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 text-white group-hover:text-neon-green transition-colors">Python Generator + Runner</h3>
+              <p className="text-neutral-400 mb-4 relative z-10">
+                Generate Python code for analytics, ETL, and ML. 
+                Safely connect to your user DB, CSVs, and APIs.
+              </p>
+              <ul className="space-y-2 text-sm text-neutral-500 relative z-10">
+                <li className="flex items-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-2" />
+                  Sandboxed execution
+                </li>
+                <li className="flex items-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-2" />
+                  Time & memory limits
+                </li>
+              </ul>
+            </div>
+
+            {/* Feature 3 */}
+            <div className="group rounded-2xl border border-white/5 bg-white/[0.02] p-8 transition-all hover:bg-white/[0.05] hover:border-neon-green/30 hover:shadow-[0_0_30px_rgba(74,222,128,0.1)] relative overflow-hidden backdrop-blur-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-neon-green/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="h-12 w-12 rounded-xl bg-neon-green/10 flex items-center justify-center mb-6 text-neon-green border border-neon-green/20 group-hover:scale-110 transition-transform duration-300">
+                <BarChart3 className="h-6 w-6" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 text-white group-hover:text-neon-green transition-colors">Instant Visualization</h3>
+              <p className="text-neutral-400 mb-4 relative z-10">
+                Auto-generate charts from SQL results and Python outputs. 
+                Visualize results immediately, not just raw DB traffic.
+              </p>
+              <div className="flex gap-2 mt-4 relative z-10">
+                <span className="px-2 py-1 rounded-md bg-white/5 text-xs font-mono border border-white/10 text-neutral-300">Tables</span>
+                <span className="px-2 py-1 rounded-md bg-white/5 text-xs font-mono border border-white/10 text-neutral-300">Line</span>
+                <span className="px-2 py-1 rounded-md bg-white/5 text-xs font-mono border border-white/10 text-neutral-300">Heatmaps</span>
+              </div>
+            </div>
+
+            {/* Feature 4 */}
+            <div className="group rounded-2xl border border-white/5 bg-white/[0.02] p-8 transition-all hover:bg-white/[0.05] hover:border-neon-green/30 hover:shadow-[0_0_30px_rgba(74,222,128,0.1)] relative overflow-hidden backdrop-blur-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-neon-green/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="h-12 w-12 rounded-xl bg-neon-green/10 flex items-center justify-center mb-6 text-neon-green border border-neon-green/20 group-hover:scale-110 transition-transform duration-300">
+                <MessageSquare className="h-6 w-6" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 text-white group-hover:text-neon-green transition-colors">User-Friendly UX</h3>
+              <p className="text-neutral-400 mb-4 relative z-10">
+                One input box for everything. SQL and Python shown in collapsible panels. 
+                Undo/rollback suggestions and clear error explanations.
+              </p>
+            </div>
+
+             {/* Feature 5 */}
+             <div className="group rounded-2xl border border-white/5 bg-white/[0.02] p-8 transition-all hover:bg-white/[0.05] hover:border-neon-green/30 hover:shadow-[0_0_30px_rgba(74,222,128,0.1)] relative overflow-hidden backdrop-blur-sm md:col-span-2">
+                <div className="absolute inset-0 bg-gradient-to-br from-neon-green/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="h-12 w-12 rounded-xl bg-neon-green/10 flex items-center justify-center mb-6 text-neon-green border border-neon-green/20 group-hover:scale-110 transition-transform duration-300">
+                <Terminal className="h-6 w-6" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 text-white group-hover:text-neon-green transition-colors">API Support for Xbase AI</h3>
+              <p className="text-neutral-400 mb-4 opacity-100 relative z-10">
+                Ready for external integrations. Send natural language, schema, and permissions. 
+                Receive SQL, Python, and visual config. Execution is always opt-in.
+              </p>
+              <div className="w-full rounded-lg bg-black border border-white/10 p-4 font-mono text-sm text-neutral-400 relative z-10 shadow-inner">
+                <span className="text-purple-400">POST</span> /api/v1/generate <br/>
+                <span className="text-yellow-400">{"{"}</span> <br/>
+                &nbsp;&nbsp;"intent": "Show me daily active users", <br/>
+                &nbsp;&nbsp;"schema": "..." <br/>
+                <span className="text-yellow-400">{"}"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-white/5 py-12 bg-black relative">
+         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[1px] bg-gradient-to-r from-transparent via-neon-green/20 to-transparent"></div>
+        <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-2">
+             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-neon-green text-black font-bold text-xs shadow-[0_0_10px_rgba(74,222,128,0.4)]">
+              X
+            </div>
+            <span className="text-sm font-semibold text-white">XBase</span>
+          </div>
+          <p className="text-sm text-neutral-600">
+            © 2026 XBase. AI Control Plane for Databases.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
