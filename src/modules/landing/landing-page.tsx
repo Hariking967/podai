@@ -1,14 +1,32 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Database, Code, BarChart3, MessageSquare, Terminal } from "lucide-react";
 
 import { ScrollingText } from "@/components/ui/scrolling-text";
 
 export default function LandingPage() {
+  const cursorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (cursorRef.current) {
+        cursorRef.current.style.background = `radial-gradient(600px circle at ${e.clientX}px ${e.clientY}px, rgba(74,222,128,0.15), transparent 40%)`;
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-black text-white selection:bg-neon-green/20 selection:text-neon-green overflow-hidden">
+    <div className="min-h-screen bg-black text-white selection:bg-neon-green/20 selection:text-neon-green overflow-hidden relative">
+      <div 
+        ref={cursorRef} 
+        className="pointer-events-none fixed inset-0 z-50 transition-colors duration-300"
+      />
       {/* Hero Section */}
       <section className="relative pt-32 pb-16 md:pt-48 md:pb-32">
          {/* Background Glows */}

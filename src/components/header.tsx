@@ -28,8 +28,8 @@ export function Header() {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-y border-white/10 bg-neutral-900/60 backdrop-blur-2xl supports-[backdrop-filter]:bg-neutral-900/40 shadow-lg">
-      <div className="container mx-auto flex h-20 items-center justify-between px-6">
+    <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-neutral-950/60 backdrop-blur-2xl shadow-xl">
+      <div className="container mx-auto flex h-16 md:h-20 items-center justify-between px-6">
         {/* Logo Section */}
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80 group">
           {/* Using public/logo-nobg.png */}
@@ -44,19 +44,29 @@ export function Header() {
         {/* Right Section */}
         <div className="flex items-center gap-4">
           {session ? (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <User className="h-4 w-4 text-neon-green" />
-                <span className="text-gray-200"><span className="text-neon-green">{session.user.name || "User"}</span></span>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-3 bg-white/5 px-4 py-2.5 rounded-full border border-white/5">
+                <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-neutral-800 border-2 border-neutral-700">
+                    <User className="h-4 w-4 text-neutral-400" />
+                    {/* Pulsing Online Indicator */}
+                    <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-neon-green ring-2 ring-neutral-900 shadow-[0_0_8px_rgba(57,255,20,1)]">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neon-green opacity-50"></span>
+                    </span>
+                </div>
+                <div className="flex flex-col">
+                    <span className="text-sm font-semibold text-white leading-tight">{session.user.name || "User"}</span>
+                    <span className="text-[10px] text-neon-green uppercase tracking-wider font-semibold">Online</span>
+                </div>
               </div>
+              
               <Button 
                 variant="ghost" 
-                size="sm" 
+                size="icon" 
                 onClick={handleLogout}
-                className="text-gray-400 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10"
+                className="h-10 w-10 text-neutral-400 hover:text-white hover:bg-red-500/20 hover:border hover:border-red-500/50 hover:shadow-[0_0_15px_rgba(239,68,68,0.3)] transition-all duration-300 rounded-xl"
+                title="Logout"
               >
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
+                <LogOut className="h-4 w-4" />
               </Button>
             </div>
           ) : (

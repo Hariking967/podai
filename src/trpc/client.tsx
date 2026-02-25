@@ -1,6 +1,6 @@
 "use client";
 
-import { createTRPCReact } from "@trpc/tanstack-react-query";
+import { createTRPCReact } from "@trpc/react-query";
 import { type AppRouter } from "./routers/_app";
 import { useState } from "react";
 import { makeQueryClient } from "./query-client";

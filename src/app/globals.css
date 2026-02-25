@@ -129,6 +129,45 @@
 }
 
 @layer utilities {
+  .glass-panel {
+    background: linear-gradient(135deg, rgba(39, 39, 42, 0.55), rgba(10, 10, 10, 0.7));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 50px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(20px);
+  }
+
+  .glass-panel-soft {
+    background: linear-gradient(140deg, rgba(52, 52, 56, 0.32), rgba(9, 9, 11, 0.5));
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 24px rgba(0, 0, 0, 0.38);
+    backdrop-filter: blur(14px);
+  }
+
+  .neon-btn {
+    background: linear-gradient(140deg, rgba(74, 222, 128, 0.98), rgba(43, 184, 111, 0.92));
+    color: #050706;
+    border: 1px solid rgba(167, 243, 208, 0.55);
+    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.18), 0 10px 30px rgba(74, 222, 128, 0.33);
+  }
+
+  .neon-btn:hover {
+    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.28), 0 14px 36px rgba(74, 222, 128, 0.48);
+    transform: translateY(-1px);
+  }
+
+  .neon-outline-btn {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    color: rgba(220, 252, 231, 0.95);
+    box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.15), 0 8px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  .neon-outline-btn:hover {
+    border-color: rgba(74, 222, 128, 0.7);
+    box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.3), 0 0 25px rgba(74, 222, 128, 0.22);
+    color: white;
+  }
+
   .text-neon {
     color: var(--color-neon-green);
     text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
@@ -148,5 +187,58 @@
   }
   .hover-glow:hover {
     box-shadow: 0 0 20px rgba(74, 222, 128, 0.4);
+  }
+
+  .animate-float-slow {
+    animation: float-slow 5.5s ease-in-out infinite;
+  }
+
+  .animate-neon-shimmer {
+    animation: neon-shimmer 2.2s linear infinite;
+  }
+
+  .animate-soft-pulse {
+    animation: soft-pulse 2.8s ease-in-out infinite;
+  }
+
+  .animate-spin-slow {
+    animation: spin-slow 10s linear infinite;
+  }
+}
+
+@keyframes neon-shimmer {
+  0% {
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  100% {
+    transform: translateX(140%) skewX(-20deg);
+  }
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
   }
 }
