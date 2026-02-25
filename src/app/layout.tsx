@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { TRPCReactProvider } from "@/trpc/client";
 import { Header } from "@/components/header";
 import { GlowingGrid } from "@/components/ui/glowing-grid";
 import { Toaster } from "@/components/ui/sonner";
+import { QueryProvider } from "@/components/providers/query-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,17 +27,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <TRPCReactProvider>
-      <html lang="en">
-        <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a0a0a] text-white`}
-        >
+    <html lang="en">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a0a0a] text-white`}
+      >
+        <QueryProvider>
           <GlowingGrid />
           <Header />
           {children}
           <Toaster />
-        </body>
-      </html>
-    </TRPCReactProvider>
+        </QueryProvider>
+      </body>
+    </html>
   );
 }

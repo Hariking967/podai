@@ -16,10 +16,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-
-import { api } from "@/trpc/client";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -32,6 +31,8 @@ import {
 interface ProjectListItem {
   id: string;
   name: string;
+  neonApiKey?: string | null;
+  chatId?: string | null;
 }
 
 interface ChatListItem {
@@ -55,6 +56,33 @@ interface ChatListItem {
   };
 }
 
+interface ChatResponse {
+  chatId: string | null;
+  messages: ChatListItem[];
+}
+
+const getJson = async <T,>(url: string): Promise<T> => {
+  const response = await fetch(url, { method: "GET" });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.message || "Request failed");
+  }
+  return data as T;
+};
+
+const postJson = async <T,>(url: string, body: unknown): Promise<T> => {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.message || "Request failed");
+  }
+  return data as T;
+};
+
 export function ProjectLayout() {
   const params = useParams();
   const currentProjectName = decodeURIComponent((params?.project as string) || "");
@@ -65,26 +93,38 @@ export function ProjectLayout() {
 
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
+  const queryClient = useQueryClient();
 
-  const { data: projects, refetch } = api.project.getAll.useQuery(
-    { userId: userId! },
-    { enabled: !!userId }
-  );
+  const { data: projects, refetch } = useQuery({
+    queryKey: ["projects", userId],
+    queryFn: () =>
+      getJson<ProjectListItem[]>(
+        `/api/project/get-all?userId=${encodeURIComponent(userId!)}`
+      ),
+    enabled: !!userId,
+  });
   const projectList = (projects ?? []) as ProjectListItem[];
 
   const currentProject = projectList.find((p) => p.name === currentProjectName);
   const projectId = currentProject?.id;
 
-  const { data: chatData, refetch: refetchChat } = api.chat.getChat.useQuery(
-    { projectId: projectId! },
-    { enabled: !!projectId }
-  );
+  const { data: chatData, refetch: refetchChat } = useQuery({
+    queryKey: ["chat", projectId],
+    queryFn: () =>
+      getJson<ChatResponse>(
+        `/api/chat/get-chat?projectId=${encodeURIComponent(projectId!)}`
+      ),
+    enabled: !!projectId,
+  });
 
-  const { data: tableNames, isLoading: tablesLoading } =
-    api.neon.listTables.useQuery(
-      { projectId: projectId! },
-      { enabled: !!projectId }
-    );
+  const { data: tableNames, isLoading: tablesLoading } = useQuery({
+    queryKey: ["neon-tables", projectId],
+    queryFn: () =>
+      getJson<string[]>(
+        `/api/neon/list-tables?projectId=${encodeURIComponent(projectId!)}`
+      ),
+    enabled: !!projectId,
+  });
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,32 +133,50 @@ export function ProjectLayout() {
     }
   }, [selectedTable, tableNames]);
 
-  const { data: tableRows, isLoading: tableRowsLoading } =
-    api.neon.getTableData.useQuery(
-      {
-        projectId: projectId!,
-        tableName: selectedTable || "",
-        limit: 200,
-      },
-      { enabled: !!projectId && !!selectedTable }
-    );
+  const { data: tableRows, isLoading: tableRowsLoading } = useQuery({
+    queryKey: ["table-data", projectId, selectedTable],
+    queryFn: () =>
+      getJson<Record<string, unknown>[]>(
+        `/api/neon/get-table-data?projectId=${encodeURIComponent(
+          projectId!
+        )}&tableName=${encodeURIComponent(selectedTable || "")}&limit=200`
+      ),
+    enabled: !!projectId && !!selectedTable,
+  });
 
-  const createProject = api.project.create.useMutation({
+  const createProject = useMutation({
+    mutationFn: (payload: { name: string; neonApiKey?: string; userId: string }) =>
+      postJson<{ project: ProjectListItem; chat: { id: string } }>(
+        "/api/project/create",
+        payload
+      ),
     onSuccess: () => {
       toast.success("Project created!");
       setOpen(false);
       setName("");
       setApiKey("");
       refetch();
+      queryClient.invalidateQueries({ queryKey: ["projects", userId] });
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Failed to create project");
     },
   });
 
-  const sendMessage = api.chat.sendMessage.useMutation({
+  const sendMessage = useMutation({
+    mutationFn: (payload: { projectId: string; message: string }) =>
+      postJson<{
+        userMessage: { role: "user"; content: string; createdAt: string };
+        aiMessage: {
+          role: "assistant";
+          content: string;
+          createdAt: string;
+          data_location?: ChatListItem["data_location"];
+        };
+      }>("/api/chat/send-message", payload),
     onSuccess: () => {
       refetchChat();
+      queryClient.invalidateQueries({ queryKey: ["chat", projectId] });
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Failed to send message");
@@ -161,18 +219,31 @@ export function ProjectLayout() {
 
   return (
     <div className="h-screen w-full text-white pt-16 bg-[#0a0a0a] relative overflow-hidden">
-      <div className="absolute inset-0 z-0 opacity-40" style={{ background: "radial-gradient(circle at 12% 18%, rgba(74, 222, 128, 0.08), transparent 32%), radial-gradient(circle at 84% 20%, rgba(52, 211, 153, 0.06), transparent 26%)" }} />
-      <div className="absolute inset-0 z-0 opacity-30" style={{ backgroundImage: "radial-gradient(rgba(161, 161, 170, 0.14) 1px, transparent 1px)", backgroundSize: "26px 26px" }} />
+      <div
+        className="absolute inset-0 z-0 opacity-45"
+        style={{
+          background:
+            "radial-gradient(circle at 8% 10%, rgba(74, 222, 128, 0.14), transparent 32%), radial-gradient(circle at 84% 18%, rgba(20, 184, 166, 0.1), transparent 28%), radial-gradient(circle at 50% 120%, rgba(34, 197, 94, 0.08), transparent 45%)",
+        }}
+      />
+      <div
+        className="absolute inset-0 z-0 opacity-30"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
+          backgroundSize: "30px 30px",
+        }}
+      />
       <CursorBackground />
 
       <div className="relative z-10 h-full flex overflow-hidden">
         <aside
-          className={`bg-[#111111] border-r border-gray-800 transition-all duration-300 ${
+          className={`bg-[#0f0f0f]/95 backdrop-blur-xl border-r border-gray-800/80 transition-all duration-300 ${
             isSidebarOpen ? "w-64" : "w-0"
           }`}
         >
           <div className={`h-full flex flex-col ${isSidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none"} transition-opacity duration-200`}>
-            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800">
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800/80">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-400">Dashboard</h2>
               <Dialog open={open} onOpenChange={setOpen}>
                 <DialogTrigger asChild>
@@ -257,10 +328,10 @@ export function ProjectLayout() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.04, type: "spring", stiffness: 280, damping: 24 }}
                     whileHover={{ y: -2 }}
-                    className={`p-3 rounded-lg border transition-all duration-200 flex items-center justify-between group ${
+                    className={`p-3 rounded-xl border transition-all duration-200 flex items-center justify-between group ${
                       currentProjectName === project.name
-                        ? "border-neon-green/50 bg-white/5"
-                        : "border-gray-800 bg-[#0f0f0f] hover:border-neon-green/30 hover:bg-white/5"
+                        ? "border-neon-green/50 bg-neon-green/10 shadow-[0_0_20px_rgba(74,222,128,0.16)]"
+                        : "border-gray-800 bg-[#121212] hover:border-neon-green/30 hover:bg-white/5"
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -299,25 +370,25 @@ export function ProjectLayout() {
 
         <main className="flex-1 overflow-y-auto bg-[#0a0a0a] border-r border-gray-800">
           <div className="h-full p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 rounded-2xl border border-gray-800/80 bg-[#101010]/85 backdrop-blur-xl px-4 py-3">
               <div>
                 <div className="text-xs uppercase tracking-widest text-neutral-500">Table Viewer</div>
-                <div className="text-lg font-semibold text-zinc-100">
+                <div className="text-lg font-semibold text-zinc-100 mt-0.5">
                   {selectedTable ? `Table: ${selectedTable}` : "Select a table"}
                 </div>
               </div>
-              <div className="text-xs text-neutral-500">
-                {tableRows ? `${tableRows.length} rows` : "0 rows"}
+              <div className="text-xs text-neutral-300 rounded-full bg-neon-green/15 border border-neon-green/25 px-3 py-1">
+                {tableRows ? `${tableRows.length} rows loaded` : "0 rows"}
               </div>
             </div>
 
             {!projectId ? (
-              <div className="h-[70vh] flex items-center justify-center text-neutral-500 text-sm border border-gray-800 rounded-xl bg-[#111111]">
+              <div className="h-[70vh] flex items-center justify-center text-neutral-500 text-sm border border-gray-800 rounded-2xl bg-[#111111]/85 backdrop-blur-xl">
                 Select a project to view tables.
               </div>
             ) : (
               <div className="grid grid-cols-[220px_1fr] gap-4 h-[calc(100%-2.5rem)]">
-                <div className="bg-[#111111] border border-gray-800 rounded-xl p-3 overflow-y-auto">
+                <div className="bg-[#111111]/90 border border-gray-800 rounded-2xl p-3 overflow-y-auto backdrop-blur-xl">
                   <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Tables</div>
                   {tablesLoading && (
                     <div className="text-xs text-neutral-500">Loading tables...</div>
@@ -343,7 +414,7 @@ export function ProjectLayout() {
                   </div>
                 </div>
 
-                <div className="bg-[#111111] border border-gray-800 rounded-xl p-4 overflow-hidden flex flex-col">
+                <div className="bg-[#111111]/90 border border-gray-800 rounded-2xl p-4 overflow-hidden flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
                   <div className="flex-1 overflow-auto">
                     {tableRowsLoading && (
                       <div className="text-xs text-neutral-500">Loading table data...</div>
