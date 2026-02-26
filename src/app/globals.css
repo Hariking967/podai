@@ -129,6 +129,33 @@
 }
 
 @layer utilities {
+  .neon-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(74, 222, 128, 0.9) rgba(0, 0, 0, 0.9);
+  }
+
+  .neon-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .neon-scrollbar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.92);
+    border-radius: 9999px;
+  }
+
+  .neon-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(134, 239, 172, 0.95), rgba(34, 197, 94, 0.95));
+    border: 2px solid rgba(0, 0, 0, 0.92);
+    border-radius: 9999px;
+    box-shadow: 0 0 10px rgba(74, 222, 128, 0.45);
+  }
+
+  .neon-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(167, 243, 208, 1), rgba(74, 222, 128, 1));
+    box-shadow: 0 0 14px rgba(74, 222, 128, 0.62);
+  }
+
   .glass-panel {
     background: linear-gradient(135deg, rgba(39, 39, 42, 0.55), rgba(10, 10, 10, 0.7));
     border: 1px solid rgba(255, 255, 255, 0.08);

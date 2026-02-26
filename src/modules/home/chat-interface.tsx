@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Sparkles, User, Bot } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -53,7 +52,14 @@ export function ChatInterface({
   isPending
 }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const emptyStateHints = ["Listening for prompts", "Neural context warming", "Ready for first message"];
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [messages, isPending]);
 
   const renderPlot = (message: ChatMessage) => {
     const plot = message.data_location?.output?.result?.plot;
@@ -119,7 +125,10 @@ export function ChatInterface({
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-6 relative z-10 bg-gradient-to-b from-transparent via-zinc-500/[0.04] to-zinc-500/[0.08]">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 p-6 relative z-10 bg-gradient-to-b from-transparent via-zinc-500/[0.04] to-zinc-500/[0.08] overflow-y-auto neon-scrollbar"
+      >
         {messages.length === 0 ? (
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
@@ -258,7 +267,7 @@ export function ChatInterface({
             </AnimatePresence>
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* Input Area (Floating Pill) */}
       <div className="p-4 relative z-20 bg-transparent">

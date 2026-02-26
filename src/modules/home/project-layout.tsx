@@ -9,13 +9,17 @@ import {
   Sparkles,
   Database,
   ChevronRight,
-  ChevronLeft,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -89,7 +93,7 @@ export function ProjectLayout() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [optimisticUserMessage, setOptimisticUserMessage] = useState<ChatListItem | null>(null);
 
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
@@ -174,11 +178,20 @@ export function ProjectLayout() {
           data_location?: ChatListItem["data_location"];
         };
       }>("/api/chat/send-message", payload),
+    onMutate: (payload) => {
+      setOptimisticUserMessage({
+        role: "user",
+        content: payload.message,
+        createdAt: new Date().toISOString(),
+      });
+    },
     onSuccess: () => {
       refetchChat();
       queryClient.invalidateQueries({ queryKey: ["chat", projectId] });
+      setOptimisticUserMessage(null);
     },
     onError: (err) => {
+      setOptimisticUserMessage(null);
       toast.error(err instanceof Error ? err.message : "Failed to send message");
     },
   });
@@ -199,6 +212,12 @@ export function ProjectLayout() {
       message: text,
     });
   };
+
+  const displayedMessages = (
+    optimisticUserMessage
+      ? [ ...((chatData?.messages as ChatListItem[]) || []), optimisticUserMessage ]
+      : ((chatData?.messages as ChatListItem[]) || [])
+  );
 
   const CursorBackground = () => {
     const cursorRef = useRef<HTMLDivElement>(null);
@@ -236,13 +255,9 @@ export function ProjectLayout() {
       />
       <CursorBackground />
 
-      <div className="relative z-10 h-full flex overflow-hidden">
-        <aside
-          className={`bg-[#0f0f0f]/95 backdrop-blur-xl border-r border-gray-800/80 transition-all duration-300 ${
-            isSidebarOpen ? "w-64" : "w-0"
-          }`}
-        >
-          <div className={`h-full flex flex-col ${isSidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none"} transition-opacity duration-200`}>
+      <ResizablePanelGroup direction="horizontal" className="relative z-10 h-full w-full">
+        <ResizablePanel defaultSize={20} minSize={12} maxSize={32} className="bg-[#0f0f0f]/95 backdrop-blur-xl border-r border-gray-800/80">
+          <div className="h-full flex flex-col">
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800/80">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-400">Dashboard</h2>
               <Dialog open={open} onOpenChange={setOpen}>
@@ -357,19 +372,11 @@ export function ProjectLayout() {
               )}
             </div>
           </div>
-        </aside>
+        </ResizablePanel>
+        <ResizableHandle withHandle className="bg-transparent hover:bg-neon-green/15 transition-colors" />
 
-        <button
-          type="button"
-          onClick={() => setIsSidebarOpen((prev) => !prev)}
-          className="absolute left-0 top-24 z-20 h-9 w-9 -translate-x-1/2 rounded-full border border-gray-800 bg-[#111111] text-neutral-300 hover:text-white hover:border-neon-green/50 transition-all duration-300 flex items-center justify-center"
-          aria-label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-        >
-          {isSidebarOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        </button>
-
-        <main className="flex-1 overflow-y-auto bg-[#0a0a0a] border-r border-gray-800">
-          <div className="h-full p-6">
+        <ResizablePanel defaultSize={50} minSize={30} className="bg-[#0a0a0a] border-r border-gray-800">
+          <main className="h-full overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4 rounded-2xl border border-gray-800/80 bg-[#101010]/85 backdrop-blur-xl px-4 py-3">
               <div>
                 <div className="text-xs uppercase tracking-widest text-neutral-500">Table Viewer</div>
@@ -387,83 +394,89 @@ export function ProjectLayout() {
                 Select a project to view tables.
               </div>
             ) : (
-              <div className="grid grid-cols-[220px_1fr] gap-4 h-[calc(100%-2.5rem)]">
-                <div className="bg-[#111111]/90 border border-gray-800 rounded-2xl p-3 overflow-y-auto backdrop-blur-xl">
-                  <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Tables</div>
-                  {tablesLoading && (
-                    <div className="text-xs text-neutral-500">Loading tables...</div>
-                  )}
-                  {!tablesLoading && !tableNames?.length && (
-                    <div className="text-xs text-neutral-500">No tables found.</div>
-                  )}
-                  <div className="flex flex-col gap-2">
-                    {tableNames?.map((table) => (
-                      <button
-                        key={table}
-                        type="button"
-                        onClick={() => setSelectedTable(table)}
-                        className={`text-left px-3 py-2 rounded-lg text-sm transition-all ${
-                          selectedTable === table
-                            ? "neon-outline-btn"
-                            : "bg-black/40 text-neutral-300 hover:bg-white/10"
-                        }`}
-                      >
-                        {table}
-                      </button>
-                    ))}
+              <ResizablePanelGroup direction="horizontal" className="h-[calc(100%-2.5rem)]">
+                <ResizablePanel defaultSize={24} minSize={16} maxSize={38} className="pr-2">
+                  <div className="h-full bg-[#111111]/90 border border-gray-800 rounded-2xl p-3 overflow-y-auto backdrop-blur-xl">
+                    <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Tables</div>
+                    {tablesLoading && (
+                      <div className="text-xs text-neutral-500">Loading tables...</div>
+                    )}
+                    {!tablesLoading && !tableNames?.length && (
+                      <div className="text-xs text-neutral-500">No tables found.</div>
+                    )}
+                    <div className="flex flex-col gap-2">
+                      {tableNames?.map((table) => (
+                        <button
+                          key={table}
+                          type="button"
+                          onClick={() => setSelectedTable(table)}
+                          className={`text-left px-3 py-2 rounded-lg text-sm transition-all ${
+                            selectedTable === table
+                              ? "neon-outline-btn"
+                              : "bg-black/40 text-neutral-300 hover:bg-white/10"
+                          }`}
+                        >
+                          {table}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                </ResizablePanel>
+                <ResizableHandle withHandle className="bg-transparent hover:bg-neon-green/15 transition-colors" />
 
-                <div className="bg-[#111111]/90 border border-gray-800 rounded-2xl p-4 overflow-hidden flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
-                  <div className="flex-1 overflow-auto">
-                    {tableRowsLoading && (
-                      <div className="text-xs text-neutral-500">Loading table data...</div>
-                    )}
-                    {!tableRowsLoading && selectedTable && tableRows?.length === 0 && (
-                      <div className="text-xs text-neutral-500">No rows returned.</div>
-                    )}
-                    {!tableRowsLoading && tableRows && tableRows.length > 0 && (
-                      <Table className="text-xs text-zinc-200">
-                        <TableHeader>
-                          <TableRow className="border-white/10">
-                            {Object.keys(tableRows[0]).map((column) => (
-                              <TableHead key={column} className="text-zinc-400">
-                                {column}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {tableRows.map((row, rowIndex) => (
-                            <TableRow key={rowIndex} className="border-white/5">
-                              {Object.values(row).map((value, cellIndex) => (
-                                <TableCell key={cellIndex}>
-                                  {value === null ? "null" : String(value)}
-                                </TableCell>
+                <ResizablePanel defaultSize={76} minSize={45} className="pl-2">
+                  <div className="h-full bg-[#111111]/90 border border-gray-800 rounded-2xl p-4 overflow-hidden flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+                    <div className="flex-1 overflow-auto">
+                      {tableRowsLoading && (
+                        <div className="text-xs text-neutral-500">Loading table data...</div>
+                      )}
+                      {!tableRowsLoading && selectedTable && tableRows?.length === 0 && (
+                        <div className="text-xs text-neutral-500">No rows returned.</div>
+                      )}
+                      {!tableRowsLoading && tableRows && tableRows.length > 0 && (
+                        <Table className="text-xs text-zinc-200">
+                          <TableHeader>
+                            <TableRow className="border-white/10">
+                              {Object.keys(tableRows[0]).map((column) => (
+                                <TableHead key={column} className="text-zinc-400">
+                                  {column}
+                                </TableHead>
                               ))}
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                          </TableHeader>
+                          <TableBody>
+                            {tableRows.map((row, rowIndex) => (
+                              <TableRow key={rowIndex} className="border-white/5">
+                                {Object.values(row).map((value, cellIndex) => (
+                                  <TableCell key={cellIndex}>
+                                    {value === null ? "null" : String(value)}
+                                  </TableCell>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
             )}
-          </div>
-        </main>
+          </main>
+        </ResizablePanel>
+        <ResizableHandle withHandle className="bg-transparent hover:bg-neon-green/15 transition-colors" />
 
-        <aside className="w-[400px] shrink-0 bg-[#111111] border-l border-gray-800">
+        <ResizablePanel defaultSize={30} minSize={22} maxSize={42} className="bg-[#111111] border-l border-gray-800">
           {currentProjectName && projectId ? (
-            <ChatInterface 
-              messages={(chatData?.messages as ChatListItem[]) || []}
+            <ChatInterface
+              messages={displayedMessages}
               onSendMessage={handleSendMessage}
               isPending={sendMessage.isPending}
             />
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-neutral-500 relative">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-neon-green/5 border border-neon-green/10 rounded-full blur-3xl opacity-50 pointer-events-none animate-soft-pulse" />
-              <motion.div 
+              <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
@@ -480,7 +493,7 @@ export function ProjectLayout() {
               >
                 Workspace Ready
               </motion.h3>
-              <motion.p 
+              <motion.p
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.3, duration: 0.5 }}
@@ -490,8 +503,8 @@ export function ProjectLayout() {
               </motion.p>
             </div>
           )}
-        </aside>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

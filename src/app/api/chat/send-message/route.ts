@@ -11,6 +11,11 @@ const SendMessageSchema = z.object({
   message: z.string().min(1),
 });
 
+const toIsoStringSafe = (value: Date | string) => {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+};
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -79,12 +84,12 @@ export async function POST(req: Request) {
       userMessage: {
         role: "user" as const,
         content: newMessage.query,
-        createdAt: newMessage.createdAt.toISOString(),
+        createdAt: toIsoStringSafe(newMessage.createdAt),
       },
       aiMessage: {
         role: "assistant" as const,
         content: newMessage.reply,
-        createdAt: newMessage.createdAt.toISOString(),
+        createdAt: toIsoStringSafe(newMessage.createdAt),
         data_location: newMessage.dataLocation,
       },
     });

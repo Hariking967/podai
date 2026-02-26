@@ -8,6 +8,11 @@ const GetChatSchema = z.object({
   projectId: z.string().min(1),
 });
 
+const toIsoStringSafe = (value: Date | string) => {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+};
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -29,11 +34,22 @@ export async function GET(req: Request) {
     });
 
     const messageIds = rows.map((row) => row.id);
-    const executionRows = messageIds.length
-      ? await db.query.executionResults.findMany({
-          where: inArray(executionResults.messageId, messageIds),
-        })
-      : [];
+    let executionRows: Array<{ messageId: string; executionJson: unknown }> = [];
+    if (messageIds.length) {
+      try {
+        if (db.query.executionResults?.findMany) {
+          const rowsFromDb = await db.query.executionResults.findMany({
+            where: inArray(executionResults.messageId, messageIds),
+          });
+          executionRows = rowsFromDb.map((row) => ({
+            messageId: row.messageId,
+            executionJson: row.executionJson,
+          }));
+        }
+      } catch {
+        executionRows = [];
+      }
+    }
 
     const executionMap = new Map(
       executionRows.map((row) => [row.messageId, row.executionJson])
@@ -43,12 +59,12 @@ export async function GET(req: Request) {
       {
         role: "user" as const,
         content: row.query,
-        createdAt: row.createdAt.toISOString(),
+        createdAt: toIsoStringSafe(row.createdAt),
       },
       {
         role: "assistant" as const,
         content: row.reply,
-        createdAt: row.createdAt.toISOString(),
+        createdAt: toIsoStringSafe(row.createdAt),
         data_location: executionMap.get(row.id) ?? row.dataLocation,
       },
     ]);
