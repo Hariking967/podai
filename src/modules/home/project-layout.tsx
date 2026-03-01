@@ -149,7 +149,7 @@ export function ProjectLayout() {
   });
 
   const createProject = useMutation({
-    mutationFn: (payload: { name: string; neonApiKey?: string; userId: string }) =>
+    mutationFn: (payload: { name: string; neonApiKey: string; userId: string }) =>
       postJson<{ project: ProjectListItem; chat: { id: string } }>(
         "/api/project/create",
         payload
@@ -198,9 +198,10 @@ export function ProjectLayout() {
 
   const handleCreate = () => {
     if (!userId) return;
+    const trimmedApiKey = apiKey.trim();
     createProject.mutate({
       name,
-      neonApiKey: apiKey || undefined,
+      neonApiKey: trimmedApiKey,
       userId,
     });
   };
@@ -306,7 +307,7 @@ export function ProjectLayout() {
                           htmlFor="apikey"
                           className="absolute left-4 top-4 text-neutral-500 text-sm transition-all peer-focus:-top-2 peer-focus:text-xs peer-focus:text-neon-green peer-focus:bg-[#0b0b0b] peer-focus:px-1 peer-[:not(:placeholder-shown)]:-top-2 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-[#0b0b0b] peer-[:not(:placeholder-shown)]:px-1 cursor-text"
                         >
-                          Neon API Key (Optional)
+                          Neon Connection String
                         </Label>
                       </div>
                     </div>
@@ -315,7 +316,7 @@ export function ProjectLayout() {
                   <div className="p-6 pt-0 mt-2">
                     <Button
                       onClick={handleCreate}
-                      disabled={createProject.isPending || !name}
+                      disabled={createProject.isPending || !name.trim() || !apiKey.trim()}
                       className="w-full h-12 neon-btn hover:bg-neon-green/95 font-bold text-base rounded-xl transition-all disabled:opacity-50 disabled:hover:shadow-none relative overflow-hidden group"
                     >
                       {createProject.isPending ? (

@@ -6,8 +6,8 @@ import { chats, projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 const CreateProjectSchema = z.object({
-  name: z.string().min(1),
-  neonApiKey: z.string().optional(),
+  name: z.string().trim().min(1),
+  neonApiKey: z.string().trim().min(1),
   userId: z.string().min(1),
 });
 
