@@ -5,44 +5,46 @@ import { db } from "@/db";
 import { chats, projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
-const CreateProjectSchema = z.object({
+const CreateAgentSchema = z.object({
+  projectId: z.string().min(1),
   name: z.string().trim().min(1),
-  neonApiKey: z.string().trim().min(1),
-  userId: z.string().min(1),
 });
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const input = CreateProjectSchema.parse(body);
+    const input = CreateAgentSchema.parse(body);
 
-    const projectId = nanoid();
-    const [newProject] = await db
-      .insert(projects)
-      .values({
-        id: projectId,
-        name: input.name,
-        neonApiKey: input.neonApiKey,
-        userId: input.userId,
-      })
-      .returning();
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, input.projectId),
+    });
+
+    if (!project) {
+      return NextResponse.json(
+        { message: "Project not found." },
+        { status: 404 },
+      );
+    }
 
     const chatId = nanoid();
     const [newChat] = await db
       .insert(chats)
       .values({
         id: chatId,
-        projectId,
-        name: "Default",
+        projectId: input.projectId,
+        name: input.name,
         messages: [],
       })
       .returning();
 
-    await db.update(projects).set({ chatId }).where(eq(projects.id, projectId));
+    await db
+      .update(projects)
+      .set({ chatId })
+      .where(eq(projects.id, input.projectId));
 
     return NextResponse.json({
-      project: newProject,
-      chat: newChat,
+      chatId: newChat.id,
+      chatName: newChat.name,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

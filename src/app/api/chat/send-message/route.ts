@@ -32,24 +32,8 @@ export async function POST(req: Request) {
     console.log(`${LOG_PREFIX} Project ID: ${input.projectId}`);
     console.log(`${LOG_PREFIX} Message: ${input.message.substring(0, 100)}...`);
 
-    // Step 1: Find chat for project
-    console.log(`${LOG_PREFIX} Step 1: Finding chat for project...`);
-    const chat = await db.query.chats.findFirst({
-      where: eq(chats.projectId, input.projectId),
-    });
-    if (!chat) {
-      console.error(
-        `${LOG_PREFIX} ERROR: Chat not found for project ${input.projectId}`,
-      );
-      return NextResponse.json(
-        { message: "Chat not found for this project" },
-        { status: 404 },
-      );
-    }
-    console.log(`${LOG_PREFIX} Chat found: ${chat.id}`);
-
-    // Step 2: Get project and Neon connection string
-    console.log(`${LOG_PREFIX} Step 2: Fetching project details...`);
+    // Step 1: Get project and Neon connection string
+    console.log(`${LOG_PREFIX} Step 1: Fetching project details...`);
     const project = await db.query.projects.findFirst({
       where: eq(projects.id, input.projectId),
     });
@@ -79,6 +63,26 @@ export async function POST(req: Request) {
     console.log(
       `${LOG_PREFIX} Neon connection string (first 50 chars): ${project.neonApiKey.substring(0, 50)}...`,
     );
+
+    // Step 2: Find active chat for project
+    console.log(`${LOG_PREFIX} Step 2: Finding active chat for project...`);
+    const chat = project.chatId
+      ? await db.query.chats.findFirst({
+          where: eq(chats.id, project.chatId),
+        })
+      : await db.query.chats.findFirst({
+          where: eq(chats.projectId, input.projectId),
+        });
+    if (!chat) {
+      console.error(
+        `${LOG_PREFIX} ERROR: Chat not found for project ${input.projectId}`,
+      );
+      return NextResponse.json(
+        { message: "Chat not found for this project" },
+        { status: 404 },
+      );
+    }
+    console.log(`${LOG_PREFIX} Chat found: ${chat.id}`);
 
     // Step 3: Fetch chat history
     console.log(`${LOG_PREFIX} Step 3: Fetching chat history...`);
@@ -131,10 +135,16 @@ export async function POST(req: Request) {
       const fileName = `${messageId}.json`;
 
       try {
+        const payloadToStore =
+          agentResult.toolOutput?.result ??
+          (agentResult.toolOutput?.error
+            ? { error: agentResult.toolOutput.error }
+            : { error: { message: "No result", traceback: "" } });
+
         const uploadResult = await uploadExecutionJson({
           projectId: input.projectId,
           fileName,
-          payload: agentResult.toolOutput,
+          payload: payloadToStore,
         });
         console.log(`${LOG_PREFIX} Supabase upload successful`);
         console.log(`${LOG_PREFIX} Bucket: ${uploadResult.bucket}`);
@@ -144,14 +154,14 @@ export async function POST(req: Request) {
           fileName,
           bucket: uploadResult.bucket,
           path: uploadResult.path,
-          output: agentResult.toolOutput,
+          output: payloadToStore,
         };
       } catch (uploadError) {
         console.error(`${LOG_PREFIX} Supabase upload failed:`, uploadError);
         // Continue without upload - store output inline
         dataLocation = {
           fileName,
-          output: agentResult.toolOutput,
+          output: agentResult.toolOutput?.result ?? agentResult.toolOutput,
         };
       }
     } else {

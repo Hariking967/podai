@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { chats, executionResults, messages } from "@/db/schema";
+import { chats, executionResults, messages, projects } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
 
 const GetChatSchema = z.object({
@@ -10,7 +10,9 @@ const GetChatSchema = z.object({
 
 const toIsoStringSafe = (value: Date | string) => {
   const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+  return Number.isNaN(date.getTime())
+    ? new Date().toISOString()
+    : date.toISOString();
 };
 
 export async function GET(req: Request) {
@@ -20,12 +22,27 @@ export async function GET(req: Request) {
       projectId: url.searchParams.get("projectId"),
     });
 
-    const chat = await db.query.chats.findFirst({
-      where: eq(chats.projectId, input.projectId),
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, input.projectId),
     });
 
+    if (!project) {
+      return NextResponse.json(
+        { message: "Project not found." },
+        { status: 404 },
+      );
+    }
+
+    const chat = project.chatId
+      ? await db.query.chats.findFirst({
+          where: eq(chats.id, project.chatId),
+        })
+      : await db.query.chats.findFirst({
+          where: eq(chats.projectId, input.projectId),
+        });
+
     if (!chat) {
-      return NextResponse.json({ chatId: null, messages: [] });
+      return NextResponse.json({ chatId: null, chatName: null, messages: [] });
     }
 
     const rows = await db.query.messages.findMany({
@@ -34,7 +51,8 @@ export async function GET(req: Request) {
     });
 
     const messageIds = rows.map((row) => row.id);
-    let executionRows: Array<{ messageId: string; executionJson: unknown }> = [];
+    let executionRows: Array<{ messageId: string; executionJson: unknown }> =
+      [];
     if (messageIds.length) {
       try {
         if (db.query.executionResults?.findMany) {
@@ -52,7 +70,7 @@ export async function GET(req: Request) {
     }
 
     const executionMap = new Map(
-      executionRows.map((row) => [row.messageId, row.executionJson])
+      executionRows.map((row) => [row.messageId, row.executionJson]),
     );
 
     const formatted = rows.flatMap((row) => [
@@ -69,15 +87,20 @@ export async function GET(req: Request) {
       },
     ]);
 
-    return NextResponse.json({ chatId: chat.id, messages: formatted });
+    return NextResponse.json({
+      chatId: chat.id,
+      chatName: chat.name,
+      messages: formatted,
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { message: "Invalid query params", issues: error.issues },
-        { status: 400 }
+        { status: 400 },
       );
     }
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ message }, { status: 500 });
   }
 }

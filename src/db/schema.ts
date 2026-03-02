@@ -81,6 +81,7 @@ export const chats = pgTable("chats", {
   projectId: text("project_id").references(() => projects.id, {
     onDelete: "cascade",
   }),
+  name: text("name").notNull().default("Default"),
   messages: jsonb("messages").default([]), // Array of {role, content, createdAt}
   createdAt: timestamp("created_at")
     .$defaultFn(() => /* @__PURE__ */ new Date())

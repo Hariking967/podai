@@ -13,6 +13,12 @@ interface UploadExecutionJsonResult {
   path: string;
 }
 
+interface CreateSignedDownloadUrlParams {
+  bucket: string;
+  path: string;
+  expiresIn?: number;
+}
+
 const DEFAULT_BUCKET = "xbase-execution-results";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -118,4 +124,30 @@ export const uploadExecutionJson = async ({
     bucket: SUPABASE_BUCKET,
     path,
   };
+};
+
+export const createSignedDownloadUrl = async ({
+  bucket,
+  path,
+  expiresIn = 60,
+}: CreateSignedDownloadUrlParams): Promise<string> => {
+  console.log(`${LOG_PREFIX} createSignedDownloadUrl called`);
+  console.log(`${LOG_PREFIX} Bucket: ${bucket}`);
+  console.log(`${LOG_PREFIX} Path: ${path}`);
+
+  const client = getSupabaseAdminClient();
+  const { data, error } = await client.storage
+    .from(bucket)
+    .createSignedUrl(path, expiresIn);
+
+  if (error) {
+    console.error(`${LOG_PREFIX} Signed URL failed: ${error.message}`);
+    throw new Error(`Supabase createSignedUrl failed: ${error.message}`);
+  }
+
+  if (!data?.signedUrl) {
+    throw new Error("Supabase createSignedUrl returned no URL");
+  }
+
+  return data.signedUrl;
 };

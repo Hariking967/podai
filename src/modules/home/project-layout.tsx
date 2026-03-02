@@ -4,15 +4,17 @@ import { motion } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 import { ChatInterface } from "./chat-interface";
 import { Button } from "@/components/ui/button";
+import { Plus, Sparkles, Database, ChevronRight } from "lucide-react";
 import {
-  Plus,
-  Sparkles,
-  Database,
-  ChevronRight,
-} from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -45,24 +47,21 @@ interface ChatListItem {
   createdAt: string;
   data_location?: {
     fileName?: string;
-    output?: {
-      prints?: string;
-      result?: {
-        plot?: {
-          type?: "line" | "bar";
-          data?: Record<string, unknown>[];
-          xKey?: string;
-          yKey?: string;
-        };
-      };
-      error?: { message: string; traceback: string } | null;
-    };
+    bucket?: string;
+    path?: string;
+    output?: unknown;
   };
 }
 
 interface ChatResponse {
   chatId: string | null;
+  chatName: string | null;
   messages: ChatListItem[];
+}
+
+interface AgentListResponse {
+  activeChatId: string | null;
+  agents: Array<{ id: string; name: string }>;
 }
 
 const getJson = async <T,>(url: string): Promise<T> => {
@@ -89,11 +88,19 @@ const postJson = async <T,>(url: string, body: unknown): Promise<T> => {
 
 export function ProjectLayout() {
   const params = useParams();
-  const currentProjectName = decodeURIComponent((params?.project as string) || "");
+  const currentProjectName = decodeURIComponent(
+    (params?.project as string) || "",
+  );
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [optimisticUserMessage, setOptimisticUserMessage] = useState<ChatListItem | null>(null);
+  const [optimisticUserMessage, setOptimisticUserMessage] =
+    useState<ChatListItem | null>(null);
+  const [quickAskOpen, setQuickAskOpen] = useState(false);
+  const [quickAskText, setQuickAskText] = useState("");
+  const [quickAskContext, setQuickAskContext] = useState<
+    "tables" | "table" | null
+  >(null);
 
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
@@ -103,7 +110,7 @@ export function ProjectLayout() {
     queryKey: ["projects", userId],
     queryFn: () =>
       getJson<ProjectListItem[]>(
-        `/api/project/get-all?userId=${encodeURIComponent(userId!)}`
+        `/api/project/get-all?userId=${encodeURIComponent(userId!)}`,
       ),
     enabled: !!userId,
   });
@@ -116,7 +123,16 @@ export function ProjectLayout() {
     queryKey: ["chat", projectId],
     queryFn: () =>
       getJson<ChatResponse>(
-        `/api/chat/get-chat?projectId=${encodeURIComponent(projectId!)}`
+        `/api/chat/get-chat?projectId=${encodeURIComponent(projectId!)}`,
+      ),
+    enabled: !!projectId,
+  });
+
+  const { data: agentData, refetch: refetchAgents } = useQuery({
+    queryKey: ["chat-agents", projectId],
+    queryFn: () =>
+      getJson<AgentListResponse>(
+        `/api/chat/list-agents?projectId=${encodeURIComponent(projectId!)}`,
       ),
     enabled: !!projectId,
   });
@@ -125,7 +141,7 @@ export function ProjectLayout() {
     queryKey: ["neon-tables", projectId],
     queryFn: () =>
       getJson<string[]>(
-        `/api/neon/list-tables?projectId=${encodeURIComponent(projectId!)}`
+        `/api/neon/list-tables?projectId=${encodeURIComponent(projectId!)}`,
       ),
     enabled: !!projectId,
   });
@@ -142,17 +158,21 @@ export function ProjectLayout() {
     queryFn: () =>
       getJson<Record<string, unknown>[]>(
         `/api/neon/get-table-data?projectId=${encodeURIComponent(
-          projectId!
-        )}&tableName=${encodeURIComponent(selectedTable || "")}&limit=200`
+          projectId!,
+        )}&tableName=${encodeURIComponent(selectedTable || "")}&limit=200`,
       ),
     enabled: !!projectId && !!selectedTable,
   });
 
   const createProject = useMutation({
-    mutationFn: (payload: { name: string; neonApiKey: string; userId: string }) =>
+    mutationFn: (payload: {
+      name: string;
+      neonApiKey: string;
+      userId: string;
+    }) =>
       postJson<{ project: ProjectListItem; chat: { id: string } }>(
         "/api/project/create",
-        payload
+        payload,
       ),
     onSuccess: () => {
       toast.success("Project created!");
@@ -163,7 +183,9 @@ export function ProjectLayout() {
       queryClient.invalidateQueries({ queryKey: ["projects", userId] });
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Failed to create project");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create project",
+      );
     },
   });
 
@@ -192,7 +214,80 @@ export function ProjectLayout() {
     },
     onError: (err) => {
       setOptimisticUserMessage(null);
-      toast.error(err instanceof Error ? err.message : "Failed to send message");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to send message",
+      );
+    },
+  });
+
+  const deleteHistory = useMutation({
+    mutationFn: (payload: { projectId: string }) =>
+      postJson<{ chatId: string; deletedMessages: number }>(
+        "/api/chat/delete-history",
+        payload,
+      ),
+    onSuccess: () => {
+      refetchChat();
+      queryClient.invalidateQueries({ queryKey: ["chat", projectId] });
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete history",
+      );
+    },
+  });
+
+  const createAgent = useMutation({
+    mutationFn: (payload: { projectId: string; name: string }) =>
+      postJson<{ chatId: string; chatName: string }>(
+        "/api/chat/create-agent",
+        payload,
+      ),
+    onSuccess: () => {
+      refetchChat();
+      refetchAgents();
+      queryClient.invalidateQueries({ queryKey: ["chat", projectId] });
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create agent",
+      );
+    },
+  });
+
+  const setActiveAgent = useMutation({
+    mutationFn: (payload: { projectId: string; chatId: string }) =>
+      postJson<{ chatId: string }>("/api/chat/set-active", payload),
+    onSuccess: () => {
+      refetchChat();
+      refetchAgents();
+      queryClient.invalidateQueries({ queryKey: ["chat", projectId] });
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to switch agent",
+      );
+    },
+  });
+
+  const renameAgent = useMutation({
+    mutationFn: (payload: {
+      projectId: string;
+      chatId: string;
+      name: string;
+    }) =>
+      postJson<{ chatId: string; chatName: string }>(
+        "/api/chat/rename-agent",
+        payload,
+      ),
+    onSuccess: () => {
+      refetchChat();
+      refetchAgents();
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to rename agent",
+      );
     },
   });
 
@@ -214,11 +309,47 @@ export function ProjectLayout() {
     });
   };
 
-  const displayedMessages = (
-    optimisticUserMessage
-      ? [ ...((chatData?.messages as ChatListItem[]) || []), optimisticUserMessage ]
-      : ((chatData?.messages as ChatListItem[]) || [])
-  );
+  const handleDeleteHistory = () => {
+    if (!projectId) return;
+    deleteHistory.mutate({ projectId });
+  };
+
+  const handleCreateAgent = (agentLabel: string) => {
+    if (!projectId || !agentLabel.trim()) return;
+    createAgent.mutate({ projectId, name: agentLabel.trim() });
+  };
+
+  const handleSelectAgent = (chatId: string) => {
+    if (!projectId) return;
+    setActiveAgent.mutate({ projectId, chatId });
+  };
+
+  const handleRenameAgent = (chatId: string, name: string) => {
+    if (!projectId || !name.trim()) return;
+    renameAgent.mutate({ projectId, chatId, name: name.trim() });
+  };
+
+  const openQuickAsk = (context: "tables" | "table") => {
+    setQuickAskContext(context);
+    setQuickAskOpen(true);
+  };
+
+  const submitQuickAsk = () => {
+    if (!quickAskText.trim()) return;
+    const contextPrefix =
+      quickAskContext === "table" && selectedTable
+        ? `Table: ${selectedTable}. `
+        : quickAskContext === "tables"
+          ? "Tables panel: "
+          : "";
+    handleSendMessage(`${contextPrefix}${quickAskText.trim()}`);
+    setQuickAskText("");
+    setQuickAskOpen(false);
+  };
+
+  const displayedMessages = optimisticUserMessage
+    ? [...((chatData?.messages as ChatListItem[]) || []), optimisticUserMessage]
+    : (chatData?.messages as ChatListItem[]) || [];
 
   const CursorBackground = () => {
     const cursorRef = useRef<HTMLDivElement>(null);
@@ -234,7 +365,12 @@ export function ProjectLayout() {
       return () => window.removeEventListener("mousemove", handleMouseMove);
     }, []);
 
-    return <div ref={cursorRef} className="pointer-events-none fixed inset-0 z-0 transition-colors duration-300" />;
+    return (
+      <div
+        ref={cursorRef}
+        className="pointer-events-none fixed inset-0 z-0 transition-colors duration-300"
+      />
+    );
   };
 
   return (
@@ -256,14 +392,27 @@ export function ProjectLayout() {
       />
       <CursorBackground />
 
-      <ResizablePanelGroup direction="horizontal" className="relative z-10 h-full w-full">
-        <ResizablePanel defaultSize={20} minSize={12} maxSize={32} className="bg-[#0f0f0f]/95 backdrop-blur-xl border-r border-gray-800/80">
+      <ResizablePanelGroup
+        direction="horizontal"
+        className="relative z-10 h-full w-full"
+      >
+        <ResizablePanel
+          defaultSize={20}
+          minSize={12}
+          maxSize={32}
+          className="bg-[#0f0f0f]/95 backdrop-blur-xl border-r border-gray-800/80"
+        >
           <div className="h-full flex flex-col">
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800/80">
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-400">Dashboard</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-400">
+                Dashboard
+              </h2>
               <Dialog open={open} onOpenChange={setOpen}>
                 <DialogTrigger asChild>
-                  <Button size="icon" className="h-9 w-9 rounded-lg bg-black/40 border border-gray-800 text-neutral-300 hover:text-white hover:border-neon-green/60 hover:shadow-[0_0_12px_rgba(74,222,128,0.35)] transition-all duration-300">
+                  <Button
+                    size="icon"
+                    className="h-9 w-9 rounded-lg bg-black/40 border border-gray-800 text-neutral-300 hover:text-white hover:border-neon-green/60 hover:shadow-[0_0_12px_rgba(74,222,128,0.35)] transition-all duration-300"
+                  >
                     <Plus className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
@@ -316,7 +465,11 @@ export function ProjectLayout() {
                   <div className="p-6 pt-0 mt-2">
                     <Button
                       onClick={handleCreate}
-                      disabled={createProject.isPending || !name.trim() || !apiKey.trim()}
+                      disabled={
+                        createProject.isPending ||
+                        !name.trim() ||
+                        !apiKey.trim()
+                      }
                       className="w-full h-12 neon-btn hover:bg-neon-green/95 font-bold text-base rounded-xl transition-all disabled:opacity-50 disabled:hover:shadow-none relative overflow-hidden group"
                     >
                       {createProject.isPending ? (
@@ -342,7 +495,12 @@ export function ProjectLayout() {
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.04, type: "spring", stiffness: 280, damping: 24 }}
+                    transition={{
+                      delay: i * 0.04,
+                      type: "spring",
+                      stiffness: 280,
+                      damping: 24,
+                    }}
                     whileHover={{ y: -2 }}
                     className={`p-3 rounded-xl border transition-all duration-200 flex items-center justify-between group ${
                       currentProjectName === project.name
@@ -351,11 +509,13 @@ export function ProjectLayout() {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 flex items-center justify-center rounded-lg ${
-                        currentProjectName === project.name
-                          ? "bg-neon-green/20 text-neon-green"
-                          : "bg-white/5 text-neutral-500 group-hover:text-neon-green"
-                      }`}>
+                      <div
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg ${
+                          currentProjectName === project.name
+                            ? "bg-neon-green/20 text-neon-green"
+                            : "bg-white/5 text-neutral-500 group-hover:text-neon-green"
+                        }`}
+                      >
                         <Database className="w-4 h-4" />
                       </div>
                       <span className="text-sm font-semibold text-zinc-200 truncate">
@@ -374,13 +534,22 @@ export function ProjectLayout() {
             </div>
           </div>
         </ResizablePanel>
-        <ResizableHandle withHandle className="bg-transparent hover:bg-neon-green/15 transition-colors" />
+        <ResizableHandle
+          withHandle
+          className="bg-transparent hover:bg-neon-green/15 transition-colors"
+        />
 
-        <ResizablePanel defaultSize={50} minSize={30} className="bg-[#0a0a0a] border-r border-gray-800">
+        <ResizablePanel
+          defaultSize={50}
+          minSize={30}
+          className="bg-[#0a0a0a] border-r border-gray-800"
+        >
           <main className="h-full overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4 rounded-2xl border border-gray-800/80 bg-[#101010]/85 backdrop-blur-xl px-4 py-3">
               <div>
-                <div className="text-xs uppercase tracking-widest text-neutral-500">Table Viewer</div>
+                <div className="text-xs uppercase tracking-widest text-neutral-500">
+                  Table Viewer
+                </div>
                 <div className="text-lg font-semibold text-zinc-100 mt-0.5">
                   {selectedTable ? `Table: ${selectedTable}` : "Select a table"}
                 </div>
@@ -395,15 +564,29 @@ export function ProjectLayout() {
                 Select a project to view tables.
               </div>
             ) : (
-              <ResizablePanelGroup direction="horizontal" className="h-[calc(100%-2.5rem)]">
-                <ResizablePanel defaultSize={24} minSize={16} maxSize={38} className="pr-2">
+              <ResizablePanelGroup
+                direction="horizontal"
+                className="h-[calc(100%-2.5rem)]"
+              >
+                <ResizablePanel
+                  defaultSize={24}
+                  minSize={16}
+                  maxSize={38}
+                  className="pr-2"
+                >
                   <div className="h-full bg-[#111111]/90 border border-gray-800 rounded-2xl p-3 overflow-y-auto backdrop-blur-xl">
-                    <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Tables</div>
+                    <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">
+                      Tables
+                    </div>
                     {tablesLoading && (
-                      <div className="text-xs text-neutral-500">Loading tables...</div>
+                      <div className="text-xs text-neutral-500">
+                        Loading tables...
+                      </div>
                     )}
                     {!tablesLoading && !tableNames?.length && (
-                      <div className="text-xs text-neutral-500">No tables found.</div>
+                      <div className="text-xs text-neutral-500">
+                        No tables found.
+                      </div>
                     )}
                     <div className="flex flex-col gap-2">
                       {tableNames?.map((table) => (
@@ -421,43 +604,84 @@ export function ProjectLayout() {
                         </button>
                       ))}
                     </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button
+                        type="button"
+                        size="icon"
+                        onClick={() => openQuickAsk("tables")}
+                        className="h-9 w-9 rounded-full border border-neon-green/40 bg-black/40 text-neon-green hover:bg-neon-green/10 hover:shadow-[0_0_12px_rgba(74,222,128,0.35)]"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </ResizablePanel>
-                <ResizableHandle withHandle className="bg-transparent hover:bg-neon-green/15 transition-colors" />
+                <ResizableHandle
+                  withHandle
+                  className="bg-transparent hover:bg-neon-green/15 transition-colors"
+                />
 
                 <ResizablePanel defaultSize={76} minSize={45} className="pl-2">
                   <div className="h-full bg-[#111111]/90 border border-gray-800 rounded-2xl p-4 overflow-hidden flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
                     <div className="flex-1 overflow-auto">
                       {tableRowsLoading && (
-                        <div className="text-xs text-neutral-500">Loading table data...</div>
+                        <div className="text-xs text-neutral-500">
+                          Loading table data...
+                        </div>
                       )}
-                      {!tableRowsLoading && selectedTable && tableRows?.length === 0 && (
-                        <div className="text-xs text-neutral-500">No rows returned.</div>
-                      )}
-                      {!tableRowsLoading && tableRows && tableRows.length > 0 && (
-                        <Table className="text-xs text-zinc-200">
-                          <TableHeader>
-                            <TableRow className="border-white/10">
-                              {Object.keys(tableRows[0]).map((column) => (
-                                <TableHead key={column} className="text-zinc-400">
-                                  {column}
-                                </TableHead>
-                              ))}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {tableRows.map((row, rowIndex) => (
-                              <TableRow key={rowIndex} className="border-white/5">
-                                {Object.values(row).map((value, cellIndex) => (
-                                  <TableCell key={cellIndex}>
-                                    {value === null ? "null" : String(value)}
-                                  </TableCell>
+                      {!tableRowsLoading &&
+                        selectedTable &&
+                        tableRows?.length === 0 && (
+                          <div className="text-xs text-neutral-500">
+                            No rows returned.
+                          </div>
+                        )}
+                      {!tableRowsLoading &&
+                        tableRows &&
+                        tableRows.length > 0 && (
+                          <Table className="text-xs text-zinc-200">
+                            <TableHeader>
+                              <TableRow className="border-white/10">
+                                {Object.keys(tableRows[0]).map((column) => (
+                                  <TableHead
+                                    key={column}
+                                    className="text-zinc-400"
+                                  >
+                                    {column}
+                                  </TableHead>
                                 ))}
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
+                            </TableHeader>
+                            <TableBody>
+                              {tableRows.map((row, rowIndex) => (
+                                <TableRow
+                                  key={rowIndex}
+                                  className="border-white/5"
+                                >
+                                  {Object.values(row).map(
+                                    (value, cellIndex) => (
+                                      <TableCell key={cellIndex}>
+                                        {value === null
+                                          ? "null"
+                                          : String(value)}
+                                      </TableCell>
+                                    ),
+                                  )}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        )}
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button
+                        type="button"
+                        size="icon"
+                        onClick={() => openQuickAsk("table")}
+                        className="h-9 w-9 rounded-full border border-neon-green/40 bg-black/40 text-neon-green hover:bg-neon-green/10 hover:shadow-[0_0_12px_rgba(74,222,128,0.35)]"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 </ResizablePanel>
@@ -465,13 +689,30 @@ export function ProjectLayout() {
             )}
           </main>
         </ResizablePanel>
-        <ResizableHandle withHandle className="bg-transparent hover:bg-neon-green/15 transition-colors" />
+        <ResizableHandle
+          withHandle
+          className="bg-transparent hover:bg-neon-green/15 transition-colors"
+        />
 
-        <ResizablePanel defaultSize={30} minSize={22} maxSize={42} className="bg-[#111111] border-l border-gray-800">
+        <ResizablePanel
+          defaultSize={30}
+          minSize={22}
+          maxSize={42}
+          className="bg-[#111111] border-l border-gray-800"
+        >
           {currentProjectName && projectId ? (
             <ChatInterface
               messages={displayedMessages}
               onSendMessage={handleSendMessage}
+              onDeleteHistory={handleDeleteHistory}
+              onCreateAgent={handleCreateAgent}
+              agentName={chatData?.chatName ?? "Default"}
+              agents={agentData?.agents ?? []}
+              activeChatId={agentData?.activeChatId ?? chatData?.chatId ?? null}
+              onSelectAgent={handleSelectAgent}
+              onRenameAgent={handleRenameAgent}
+              isDeleting={deleteHistory.isPending}
+              isCreatingAgent={createAgent.isPending}
               isPending={sendMessage.isPending}
             />
           ) : (
@@ -506,6 +747,35 @@ export function ProjectLayout() {
           )}
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      <Dialog open={quickAskOpen} onOpenChange={setQuickAskOpen}>
+        <DialogContent className="bg-[#0b0b0b] border-gray-800 text-white sm:max-w-lg shadow-2xl p-0 overflow-hidden rounded-2xl">
+          <div className="h-1 w-full bg-gradient-to-r from-transparent via-neon-green to-transparent opacity-50 absolute top-0 left-0" />
+          <div className="p-6">
+            <DialogHeader className="mb-4">
+              <DialogTitle className="text-2xl font-bold text-white flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-neon-green" />
+                What do you need to change?
+              </DialogTitle>
+            </DialogHeader>
+            <Textarea
+              value={quickAskText}
+              onChange={(e) => setQuickAskText(e.target.value)}
+              placeholder="Describe what you want to change or analyze..."
+              className="min-h-[140px] bg-[#111111] border-gray-800 focus:border-neon-green focus:ring-1 focus:ring-neon-green/50 text-white"
+            />
+          </div>
+          <div className="p-6 pt-0">
+            <Button
+              onClick={submitQuickAsk}
+              disabled={!quickAskText.trim()}
+              className="w-full h-12 neon-btn hover:bg-neon-green/95 font-bold text-base rounded-xl transition-all disabled:opacity-50 disabled:hover:shadow-none"
+            >
+              Send to Agent
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

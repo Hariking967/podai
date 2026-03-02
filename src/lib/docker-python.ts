@@ -19,6 +19,8 @@ interface PythonExecutionResult {
 }
 
 const IMAGE_NAME = "xbase-python-exec";
+const DOCKERFILE_PATH = "docker/python/Dockerfile";
+const DOCKER_CONTEXT = "docker/python";
 
 const runCommand = (command: string, args: string[], timeoutMs: number) =>
   new Promise<{ stdout: string; stderr: string; code: number | null }>(
@@ -48,6 +50,38 @@ const runCommand = (command: string, args: string[], timeoutMs: number) =>
     },
   );
 
+const ensureImageExists = async () => {
+  console.log(`${LOG_PREFIX} Checking for Docker image: ${IMAGE_NAME}`);
+  const inspectArgs = ["image", "inspect", IMAGE_NAME];
+  const inspectResult = await runCommand("docker", inspectArgs, 5000);
+  if (inspectResult.code === 0) {
+    console.log(`${LOG_PREFIX} Docker image found`);
+    return;
+  }
+
+  console.warn(`${LOG_PREFIX} Docker image missing, building...`);
+  const buildArgs = [
+    "build",
+    "-t",
+    IMAGE_NAME,
+    "-f",
+    DOCKERFILE_PATH,
+    DOCKER_CONTEXT,
+  ];
+  const buildResult = await runCommand("docker", buildArgs, 300000);
+  if (buildResult.code !== 0) {
+    console.error(`${LOG_PREFIX} Docker build failed`);
+    console.error(
+      `${LOG_PREFIX} stderr: ${buildResult.stderr.substring(0, 500)}`,
+    );
+    throw new Error(
+      `Docker build failed: ${buildResult.stderr || "unknown error"}`,
+    );
+  }
+
+  console.log(`${LOG_PREFIX} Docker image built successfully`);
+};
+
 export const runPythonInDocker = async ({
   code,
   csv,
@@ -75,6 +109,8 @@ export const runPythonInDocker = async ({
       "utf-8",
     );
     console.log(`${LOG_PREFIX} Wrote request.json to temp directory`);
+
+    await ensureImageExists();
 
     const dockerArgs = ["run", "--rm", "-v", `${tempDir}:/work`, IMAGE_NAME];
 
