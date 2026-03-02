@@ -49,6 +49,9 @@ interface ChatListItem {
     fileName?: string;
     bucket?: string;
     path?: string;
+    imageFileName?: string;
+    imageBucket?: string;
+    imagePath?: string;
     output?: unknown;
   };
 }
@@ -542,10 +545,10 @@ export function ProjectLayout() {
         <ResizablePanel
           defaultSize={50}
           minSize={30}
-          className="bg-[#0a0a0a] border-r border-gray-800"
+          className="bg-gradient-to-b from-[#2b2100]/80 via-[#120c00]/90 to-[#0a0a0a] border-r border-[#3a2a12]"
         >
           <main className="h-full overflow-y-auto p-6">
-            <div className="flex items-center justify-between mb-4 rounded-2xl border border-gray-800/80 bg-[#101010]/85 backdrop-blur-xl px-4 py-3">
+            <div className="flex items-center justify-between mb-4 rounded-2xl border border-[#5a4318]/70 bg-gradient-to-r from-[#3a2a00]/70 via-[#1a1200]/80 to-[#0f0f0f]/85 backdrop-blur-xl px-4 py-3">
               <div>
                 <div className="text-xs uppercase tracking-widest text-neutral-500">
                   Table Viewer
@@ -574,7 +577,7 @@ export function ProjectLayout() {
                   maxSize={38}
                   className="pr-2"
                 >
-                  <div className="h-full bg-[#111111]/90 border border-gray-800 rounded-2xl p-3 overflow-y-auto backdrop-blur-xl">
+                  <div className="h-full bg-gradient-to-b from-[#3b2a00]/75 via-[#1b1300]/85 to-[#101010]/90 border border-[#5a4318]/70 rounded-2xl p-3 overflow-y-auto backdrop-blur-xl">
                     <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">
                       Tables
                     </div>
@@ -622,7 +625,7 @@ export function ProjectLayout() {
                 />
 
                 <ResizablePanel defaultSize={76} minSize={45} className="pl-2">
-                  <div className="h-full bg-[#111111]/90 border border-gray-800 rounded-2xl p-4 overflow-hidden flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+                  <div className="h-full bg-gradient-to-br from-[#e5e7eb]/10 via-[#9ca3af]/10 to-[#6b7280]/10 border border-[#8b8f94]/40 rounded-2xl p-4 overflow-hidden flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
                     <div className="flex-1 overflow-auto">
                       {tableRowsLoading && (
                         <div className="text-xs text-neutral-500">
@@ -639,38 +642,40 @@ export function ProjectLayout() {
                       {!tableRowsLoading &&
                         tableRows &&
                         tableRows.length > 0 && (
-                          <Table className="text-xs text-zinc-200">
-                            <TableHeader>
-                              <TableRow className="border-white/10">
-                                {Object.keys(tableRows[0]).map((column) => (
-                                  <TableHead
-                                    key={column}
-                                    className="text-zinc-400"
-                                  >
-                                    {column}
-                                  </TableHead>
-                                ))}
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {tableRows.map((row, rowIndex) => (
-                                <TableRow
-                                  key={rowIndex}
-                                  className="border-white/5"
-                                >
-                                  {Object.values(row).map(
-                                    (value, cellIndex) => (
-                                      <TableCell key={cellIndex}>
-                                        {value === null
-                                          ? "null"
-                                          : String(value)}
-                                      </TableCell>
-                                    ),
-                                  )}
+                          <div className="rounded-xl bg-gradient-to-b from-[#f3f4f6]/12 via-[#d1d5db]/10 to-[#9ca3af]/10 p-2">
+                            <Table className="text-xs text-zinc-200">
+                              <TableHeader>
+                                <TableRow className="border-white/10">
+                                  {Object.keys(tableRows[0]).map((column) => (
+                                    <TableHead
+                                      key={column}
+                                      className="text-zinc-300"
+                                    >
+                                      {column}
+                                    </TableHead>
+                                  ))}
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                              </TableHeader>
+                              <TableBody>
+                                {tableRows.map((row, rowIndex) => (
+                                  <TableRow
+                                    key={rowIndex}
+                                    className="border-white/5"
+                                  >
+                                    {Object.values(row).map(
+                                      (value, cellIndex) => (
+                                        <TableCell key={cellIndex}>
+                                          {value === null
+                                            ? "null"
+                                            : String(value)}
+                                        </TableCell>
+                                      ),
+                                    )}
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
                         )}
                     </div>
                     <div className="mt-4 flex justify-end">
@@ -698,7 +703,7 @@ export function ProjectLayout() {
           defaultSize={30}
           minSize={22}
           maxSize={42}
-          className="bg-[#111111] border-l border-gray-800"
+          className="bg-gradient-to-b from-[#0b1f33] via-[#0a1527] to-[#080f1c] border-l border-[#1e2b3a]"
         >
           {currentProjectName && projectId ? (
             <ChatInterface

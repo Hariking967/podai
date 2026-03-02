@@ -46,7 +46,7 @@ You are the XBase AI agent for this project.
 - Use `run_sql` for database reads.
 - Use `run_python` for any data analysis, ML/statistics, or visualization prep.
 - If charts or rich metrics are required, ALWAYS call `run_python` to produce chart-ready JSON.
-- If the user asks for a chart/plot/visualization (pie, bar, line, scatter, histogram, correlation), you MUST return a plot spec and NEVER ask "Would you like a chart".
+- If the user asks for a chart/plot/visualization (pie, bar, line, scatter, histogram, correlation), you MUST generate an image in Python and NEVER ask "Would you like a chart".
 
 ## For data analysis:
 If you need to analyze data or generate plots after fetching data, call `run_python`.
@@ -56,20 +56,18 @@ The Python tool environment provides:
 
 When using `run_python`:
 - Your code MUST set a variable named `result` with JSON-serializable output.
-- `result` should contain the final data the frontend will render (tables, plots, metrics).
+- `result` should contain the final data the frontend will render (tables, metrics, metadata).
 - Avoid relying on `print()` for data; use prints only for brief logs.
 - Validate inputs and handle empty data so the code runs without errors.
 
-## PLOT OUTPUT SHAPE:
-Return plots under one of these keys in `result`:
-- `plot`: single plot spec
-- `plots`: array of plot specs
+## IMAGE OUTPUT SHAPE:
+If a chart is requested, your Python MUST:
+1) Render the chart using matplotlib.
+2) Save it to a PNG in memory.
+3) Base64-encode the PNG.
+4) Set `result.image_base64` (string) and `result.image_mime` ("image/png").
 
-Each plot spec should use one of these types: `pie`, `bar`, `line`, `scatter`, `correlation`.
-For `pie`: include `type`, `data`, `nameKey`, `valueKey`.
-For `bar`/`line`/`scatter`: include `type`, `data`, `xKey`, `yKey`.
-For `correlation`: include `type`, `labels`, `matrix`.
-
+Include the underlying data in `result.data` so the UI can still show tables/metrics.
 If the user asks for a specific chart type, honor it. If unspecified, choose a sensible chart type.
 `;
 
@@ -166,6 +164,11 @@ export const runAgent = async ({
 
   console.log(`${LOG_PREFIX} Calling OpenAI with ${input.length} messages`);
 
+  const needsVisualization = /\b(chart|plot|visuali[sz]e|graph|pie|bar|line|scatter|histogram|heatmap|distribution)\b/i.test(
+    message,
+  );
+  let forcedToolRetry = false;
+
   let response = await openaiClient.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: input,
@@ -190,6 +193,26 @@ export const runAgent = async ({
     console.log(`${LOG_PREFIX} Tool calls count: ${toolCalls.length}`);
 
     if (!toolCalls.length) {
+      if (needsVisualization && !forcedToolRetry) {
+        console.warn(
+          `${LOG_PREFIX} No tool calls for visualization request, retrying with strict tool instruction`,
+        );
+        forcedToolRetry = true;
+        response = await openaiClient.chat.completions.create({
+          model: "gpt-4.1-mini",
+          messages: [
+            ...conversation,
+            {
+              role: "system",
+              content:
+                "You must call tools now. For visualization requests, first call run_sql to fetch the needed rows, then call run_python to render a matplotlib chart and return result.image_base64 and result.image_mime. Do not answer without using tools.",
+            },
+          ],
+          tools: TOOLS,
+        });
+        continue;
+      }
+
       console.log(`${LOG_PREFIX} No tool calls, returning final response`);
       return {
         reply: assistantMessage?.content ?? "",

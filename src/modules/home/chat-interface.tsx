@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Send,
   Sparkles,
@@ -76,6 +77,9 @@ interface ChatMessage {
     fileName?: string;
     bucket?: string;
     path?: string;
+    imageFileName?: string;
+    imageBucket?: string;
+    imagePath?: string;
     output?: unknown;
   };
 }
@@ -128,8 +132,15 @@ export function ChatInterface({
   const [supabaseErrors, setSupabaseErrors] = useState<Record<string, string>>(
     {},
   );
+  const [supabaseImageUrls, setSupabaseImageUrls] = useState<
+    Record<string, string>
+  >({});
+  const [supabaseImageErrors, setSupabaseImageErrors] = useState<
+    Record<string, string>
+  >({});
   const [downloadBusy, setDownloadBusy] = useState<Record<string, boolean>>({});
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setNameDraft(agentName ?? "");
   }, [agentName]);
@@ -181,6 +192,33 @@ export function ChatInterface({
       }
     };
 
+    const fetchSupabaseImage = async (bucket: string, path: string) => {
+      const key = `${bucket}/${path}`;
+      if (supabaseImageUrls[key] || supabaseImageErrors[key]) return;
+
+      try {
+        const url = `/api/supabase/get-download-url?bucket=${encodeURIComponent(
+          bucket,
+        )}&path=${encodeURIComponent(path)}`;
+        const response = await fetch(url, { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.message || "Failed to get download URL");
+        }
+
+        const signedUrl = data?.signedUrl as string;
+        if (!signedUrl) {
+          throw new Error("Missing signedUrl in response");
+        }
+
+        setSupabaseImageUrls((prev) => ({ ...prev, [key]: signedUrl }));
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        setSupabaseImageErrors((prev) => ({ ...prev, [key]: message }));
+      }
+    };
+
     messages.forEach((msg) => {
       if (msg.role !== "assistant") return;
       const bucket = msg.data_location?.bucket;
@@ -188,10 +226,16 @@ export function ChatInterface({
       if (bucket && path) {
         fetchSupabaseJson(bucket, path);
       }
+
+      const imageBucket = msg.data_location?.imageBucket;
+      const imagePath = msg.data_location?.imagePath;
+      if (imageBucket && imagePath) {
+        fetchSupabaseImage(imageBucket, imagePath);
+      }
     });
 
     return () => controller.abort();
-  }, [messages, supabaseErrors, supabasePayloads]);
+  }, [messages]);
 
   const normalizeExecutionPayload = (payload: unknown): ExecutionPayload => {
     if (!payload || typeof payload !== "object") {
@@ -211,12 +255,29 @@ export function ChatInterface({
     return bucket && path ? `${bucket}/${path}` : null;
   };
 
+  const getImageKey = (message: ChatMessage) => {
+    const bucket = message.data_location?.imageBucket;
+    const path = message.data_location?.imagePath;
+    return bucket && path ? `${bucket}/${path}` : null;
+  };
+
+  const getImageUrl = (message: ChatMessage) => {
+    const key = getImageKey(message);
+    return key ? (supabaseImageUrls[key] ?? null) : null;
+  };
+
   const getExecutionPayload = (
     message: ChatMessage,
   ): ExecutionPayload | null => {
     const key = getSupabaseKey(message);
     if (key) {
-      return supabasePayloads[key] ?? null;
+      if (supabasePayloads[key]) {
+        return supabasePayloads[key] ?? null;
+      }
+      if (supabaseErrors[key] && message.data_location?.output) {
+        return normalizeExecutionPayload(message.data_location.output);
+      }
+      return null;
     }
 
     if (message.data_location?.output) {
@@ -523,6 +584,22 @@ export function ChatInterface({
       const messageText =
         error instanceof Error ? error.message : "Download failed";
       console.error(messageText);
+
+      if (message.data_location?.output) {
+        const blob = new Blob(
+          [JSON.stringify(message.data_location.output, null, 2)],
+          { type: "application/json" },
+        );
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = message.data_location?.fileName || "results.json";
+        link.rel = "noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
     } finally {
       setDownloadBusy((prev) => ({ ...prev, [key]: false }));
     }
@@ -543,7 +620,33 @@ export function ChatInterface({
     const result = payload.result ?? null;
     if (!result) return null;
 
+    const imageKey = getImageKey(message);
+    const imageUrl = getImageUrl(message);
+    const imageError = imageKey ? supabaseImageErrors[imageKey] : null;
+    const isImageLoading = imageKey && !imageUrl && !imageError;
+
     const resultObj = result as Record<string, unknown>;
+    const inlineImageBase64 =
+      (resultObj.image_base64 as string | undefined) ??
+      (resultObj.imageBase64 as string | undefined) ??
+      (typeof resultObj.image === "string"
+        ? (resultObj.image as string)
+        : resultObj.image &&
+            typeof resultObj.image === "object" &&
+            "base64" in resultObj.image
+          ? (resultObj.image as { base64?: string }).base64
+          : undefined);
+    const inlineImageMime =
+      (resultObj.image_mime as string | undefined) ??
+      (resultObj.imageMime as string | undefined) ??
+      (resultObj.image &&
+      typeof resultObj.image === "object" &&
+      "mime" in resultObj.image
+        ? (resultObj.image as { mime?: string }).mime
+        : "image/png");
+    const inlineImageUrl = inlineImageBase64
+      ? `data:${inlineImageMime || "image/png"};base64,${inlineImageBase64}`
+      : null;
     const sqlRows = Array.isArray(resultObj.rows)
       ? (resultObj.rows as Record<string, unknown>[])
       : null;
@@ -584,6 +687,38 @@ export function ChatInterface({
 
     return (
       <div className="mt-4 flex flex-col gap-3">
+        {imageUrl && (
+          <div className="rounded-2xl border border-white/10 bg-black/40 p-3">
+            <img
+              src={imageUrl}
+              alt="Generated chart"
+              className="w-full rounded-xl"
+            />
+          </div>
+        )}
+
+        {!imageUrl && inlineImageUrl && (
+          <div className="rounded-2xl border border-white/10 bg-black/40 p-3">
+            <img
+              src={inlineImageUrl}
+              alt="Generated chart"
+              className="w-full rounded-xl"
+            />
+          </div>
+        )}
+
+        {isImageLoading && (
+          <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-400">
+            Loading chart image...
+          </div>
+        )}
+
+        {imageError && (
+          <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            Failed to load chart image.
+          </div>
+        )}
+
         {metrics && (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {Object.entries(metrics).map(([key, value]) => (
@@ -602,9 +737,10 @@ export function ChatInterface({
           </div>
         )}
 
-        {plotSpecs.map((plot, index) => renderPlot(plot, index))}
+        {!imageUrl && plotSpecs.map((plot, index) => renderPlot(plot, index))}
 
-        {correlationLabels &&
+        {!imageUrl &&
+          correlationLabels &&
           correlationMatrix &&
           renderCorrelationMatrix(correlationLabels, correlationMatrix)}
 
@@ -645,6 +781,15 @@ export function ChatInterface({
     if (!input.trim()) return;
     onSendMessage(input);
     setInput("");
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!input.trim() || isPending) return;
+      onSendMessage(input);
+      setInput("");
+    }
   };
 
   const handleCreateAgent = () => {
@@ -911,6 +1056,10 @@ export function ChatInterface({
                             !supabasePayloads[key] &&
                             !supabaseErrors[key];
                           const hasError = key && supabaseErrors[key];
+                          const errorText =
+                            key && supabaseErrors[key]
+                              ? supabaseErrors[key]
+                              : null;
                           return (
                             <>
                               {hasSupabase && (
@@ -933,6 +1082,7 @@ export function ChatInterface({
                                   {hasError && (
                                     <span className="text-xs text-red-300">
                                       Failed to load Supabase file.
+                                      {errorText ? ` ${errorText}` : ""}
                                     </span>
                                   )}
                                 </div>
@@ -1007,12 +1157,14 @@ export function ChatInterface({
           className="relative max-w-4xl mx-auto group"
         >
           <div className="relative rounded-3xl glass-panel-soft transition-all duration-300 focus-within:border-neon-green/50 focus-within:ring-1 focus-within:ring-neon-green/35 focus-within:shadow-[0_0_28px_rgba(74,222,128,0.16)] overflow-hidden">
-            <Input
+            <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleInputKeyDown}
               placeholder="Send a message to xBase..."
               disabled={isPending}
-              className="w-full pl-6 pr-16 py-4 h-[64px] bg-transparent border-none focus-visible:ring-0 text-zinc-100 placeholder:text-zinc-500 text-base shadow-none rounded-3xl"
+              rows={1}
+              className="w-full pl-6 pr-16 py-3 min-h-[56px] max-h-[120px] leading-6 bg-transparent border-none focus-visible:ring-0 text-zinc-100 placeholder:text-zinc-500 text-base shadow-none rounded-3xl resize-none overflow-y-auto neon-scrollbar"
             />
             <Button
               type="submit"

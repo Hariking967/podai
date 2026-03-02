@@ -5,7 +5,10 @@ import { db } from "@/db";
 import { chats, executionResults, messages, projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { runAgent } from "@/lib/ai-agent";
-import { uploadExecutionJson } from "@/lib/supabase-storage";
+import {
+  uploadExecutionImage,
+  uploadExecutionJson,
+} from "@/lib/supabase-storage";
 
 const LOG_PREFIX = "[SendMessage]";
 
@@ -124,6 +127,9 @@ export async function POST(req: Request) {
       fileName: string;
       bucket?: string;
       path?: string;
+      imageFileName?: string;
+      imageBucket?: string;
+      imagePath?: string;
       output: typeof agentResult.toolOutput;
     } | null = null;
 
@@ -135,30 +141,98 @@ export async function POST(req: Request) {
       const fileName = `${messageId}.json`;
 
       try {
-        const payloadToStore =
-          agentResult.toolOutput?.result ??
+        const rawResult = agentResult.toolOutput?.result;
+        const outputPayload =
+          rawResult ??
           (agentResult.toolOutput?.error
             ? { error: agentResult.toolOutput.error }
             : { error: { message: "No result", traceback: "" } });
 
-        const uploadResult = await uploadExecutionJson({
-          projectId: input.projectId,
-          fileName,
-          payload: payloadToStore,
-        });
-        console.log(`${LOG_PREFIX} Supabase upload successful`);
-        console.log(`${LOG_PREFIX} Bucket: ${uploadResult.bucket}`);
-        console.log(`${LOG_PREFIX} Path: ${uploadResult.path}`);
+        const storagePayload =
+          outputPayload && typeof outputPayload === "object"
+            ? structuredClone(outputPayload)
+            : outputPayload;
+
+        let imageUpload: {
+          bucket: string;
+          path: string;
+          fileName: string;
+        } | null = null;
+
+        if (outputPayload && typeof outputPayload === "object") {
+          const resultObj = outputPayload as Record<string, unknown>;
+          const imageBase64 =
+            (resultObj.image_base64 as string | undefined) ??
+            (resultObj.imageBase64 as string | undefined) ??
+            (typeof resultObj.image === "string"
+              ? (resultObj.image as string)
+              : resultObj.image &&
+                  typeof resultObj.image === "object" &&
+                  "base64" in resultObj.image
+                ? (resultObj.image as { base64?: string }).base64
+                : undefined);
+          const imageMime =
+            (resultObj.image_mime as string | undefined) ??
+            (resultObj.imageMime as string | undefined) ??
+            (resultObj.image &&
+            typeof resultObj.image === "object" &&
+            "mime" in resultObj.image
+              ? (resultObj.image as { mime?: string }).mime
+              : "image/png");
+
+          if (imageBase64) {
+            const imageFileName = `${messageId}.png`;
+            const imageResult = await uploadExecutionImage({
+              projectId: input.projectId,
+              fileName: imageFileName,
+              base64: imageBase64,
+              contentType: imageMime || "image/png",
+            });
+            imageUpload = {
+              bucket: imageResult.bucket,
+              path: imageResult.path,
+              fileName: imageFileName,
+            };
+          }
+        }
+
+        if (storagePayload && typeof storagePayload === "object") {
+          const resultObj = storagePayload as Record<string, unknown>;
+          delete resultObj.image_base64;
+          delete resultObj.imageBase64;
+          delete resultObj.image_mime;
+          delete resultObj.imageMime;
+          delete resultObj.image;
+        }
+
+        let uploadResult: { bucket: string; path: string } | null = null;
+        try {
+          uploadResult = await uploadExecutionJson({
+            projectId: input.projectId,
+            fileName,
+            payload: storagePayload,
+          });
+          console.log(`${LOG_PREFIX} Supabase upload successful`);
+          console.log(`${LOG_PREFIX} Bucket: ${uploadResult.bucket}`);
+          console.log(`${LOG_PREFIX} Path: ${uploadResult.path}`);
+        } catch (jsonError) {
+          console.error(
+            `${LOG_PREFIX} Supabase JSON upload failed:`,
+            jsonError,
+          );
+        }
 
         dataLocation = {
           fileName,
-          bucket: uploadResult.bucket,
-          path: uploadResult.path,
-          output: payloadToStore,
+          bucket: uploadResult?.bucket,
+          path: uploadResult?.path,
+          imageFileName: imageUpload?.fileName,
+          imageBucket: imageUpload?.bucket,
+          imagePath: imageUpload?.path,
+          output: outputPayload,
         };
       } catch (uploadError) {
         console.error(`${LOG_PREFIX} Supabase upload failed:`, uploadError);
-        // Continue without upload - store output inline
         dataLocation = {
           fileName,
           output: agentResult.toolOutput?.result ?? agentResult.toolOutput,
