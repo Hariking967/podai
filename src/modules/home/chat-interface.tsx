@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -319,7 +319,7 @@ export function ChatInterface({
   const renderTable = (
     rows: Record<string, unknown>[],
     fields?: string[],
-  ): JSX.Element | null => {
+  ): ReactNode => {
     if (!rows.length) return null;
     const headers = fields?.length ? fields : Object.keys(rows[0] ?? {});
     const displayRows = rows.slice(0, 50);
@@ -357,7 +357,7 @@ export function ChatInterface({
   const renderCorrelationMatrix = (
     labels: string[],
     matrix: number[][],
-  ): JSX.Element => {
+  ): ReactNode => {
     const maxAbs = Math.max(
       1,
       ...matrix.flatMap((row) => row.map((value) => Math.abs(value))),
@@ -412,7 +412,7 @@ export function ChatInterface({
   const renderPlot = (
     plot: Record<string, unknown>,
     index: number,
-  ): JSX.Element | null => {
+  ): ReactNode => {
     const type = plot.type as string | undefined;
     const data = Array.isArray(plot.data)
       ? (plot.data as Record<string, unknown>[])
@@ -643,7 +643,7 @@ export function ChatInterface({
     }
   };
 
-  const renderVisuals = (message: ChatMessage): JSX.Element | null => {
+  const renderVisuals = (message: ChatMessage): ReactNode => {
     const payload = getExecutionPayload(message);
     if (!payload) return null;
 
