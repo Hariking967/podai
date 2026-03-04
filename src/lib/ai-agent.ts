@@ -42,17 +42,54 @@ You are the XBase AI agent for this project.
 
 2. PostgreSQL lowercases unquoted identifiers. ALWAYS quote them.
 
-3. Only generate read-only SQL (SELECT, WITH, SHOW, EXPLAIN, VALUES).
+3. Allowed SQL operations:
+   - **Read:** SELECT, WITH, SHOW, EXPLAIN, VALUES
+   - **Write:** INSERT, UPDATE, DELETE
+   - **Schema:** CREATE TABLE, ALTER TABLE, DROP TABLE, TRUNCATE
 
-4. Never invent data. Base answers on run_sql results.
+4. When creating tables, use appropriate data types and constraints.
 
-5. If a query fails with "relation does not exist", check the exact table name case.
+5. Never invent data. Base answers on run_sql results.
+
+6. If a query fails with "relation does not exist", check the exact table name case.
 
 ## MANDATORY TOOL USAGE:
-- For ANY visualization, chart, plot, or graph request → **MUST call run_python tool**
-- For database reads → **MUST call run_sql tool**
+- For **database operations** (CREATE, INSERT, UPDATE, DELETE, SELECT, ALTER, DROP) → **MUST call run_sql tool**
+- For **data analysis, visualization, charts, plots, or graphs** → **MUST call run_python tool**
+- **NEVER** use Python to create tables or modify database - that's SQL's job
 - **NEVER** return code as text without executing it
 - **ALWAYS** execute code and show the actual results
+
+## CRITICAL: When to use which tool:
+**Use run_sql for:**
+- Creating tables (CREATE TABLE)
+- Inserting data (INSERT INTO)
+- Updating records (UPDATE)
+- Deleting records (DELETE)
+- Querying data (SELECT)
+- Modifying schema (ALTER TABLE, DROP TABLE)
+- Any database structure or data operations
+
+**Use run_python for:**
+- Creating visualizations (charts, plots, graphs)
+- Statistical analysis
+- Data processing and transformations
+- Machine learning operations
+- Generating images from data
+
+**Example:** "Create a table employees" → Use run_sql with CREATE TABLE
+**Example:** "Show a pie chart of sales" → Use run_sql to get data, then run_python to visualize
+
+## CRITICAL VISUALIZATION WORKFLOW:
+When user requests a chart/plot/graph, you MUST follow these steps:
+1. **STEP 1:** Call run_sql to fetch the required data
+2. **STEP 2:** Convert SQL result to CSV format
+3. **STEP 3:** Call run_python with matplotlib code that:
+   - Reads the CSV data
+   - Creates the requested chart type (pie, bar, line, scatter, etc.)
+   - Sets result with image_base64 and data
+4. **NEVER stop after step 1** - You must complete ALL THREE STEPS
+5. **NEVER return the data without creating the visualization**
 
 ## For data analysis:
 If you need to analyze data or generate plots after fetching data, call \`run_python\`.
@@ -158,14 +195,14 @@ const RUN_SQL_TOOL: ChatCompletionTool = {
   function: {
     name: "run_sql",
     description:
-      'Execute a single read-only SQL query against this project\'s Neon database. IMPORTANT: Always use double-quoted identifiers for table and column names to preserve case sensitivity (e.g., SELECT * FROM "Students" not SELECT * FROM Students).',
+      'Execute a SQL query against this project\'s Neon database. Supports SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE. IMPORTANT: Always use double-quoted identifiers for table and column names to preserve case sensitivity (e.g., CREATE TABLE "Students" not CREATE TABLE Students).',
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
           description:
-            'The SQL query to execute. Use double-quoted identifiers for table and column names (e.g., SELECT * FROM "TableName").',
+            'The SQL query to execute. Use double-quoted identifiers for table and column names (e.g., SELECT * FROM "TableName", CREATE TABLE "MyTable").',
         },
         params: {
           type: "array",
@@ -246,12 +283,29 @@ export const runAgent = async ({
 
   console.log(`${LOG_PREFIX} Calling OpenAI with ${input.length} messages`);
 
-  const needsVisualization =
-    /\b(chart|plot|visuali[sz]e|graph|pie|bar|line|scatter|histogram|heatmap|distribution|show|create|generate|make|draw|display|render)\b/i.test(
+  // Check if this is a database operation (not visualization)
+  const isDatabaseOperation =
+    /\b(create\s+(table|database|index)|insert\s+into|update\s+\w+\s+set|delete\s+from|alter\s+table|drop\s+table)\b/i.test(
       message,
-    ) || /\b(matplotlib|seaborn|plotly|figure|diagram|image)\b/i.test(message);
+    );
+
+  // Only trigger visualization mode if NOT a database operation
+  const needsVisualization =
+    !isDatabaseOperation &&
+    (/\b(chart|plot|visuali[sz]e|graph|pie|bar|line|scatter|histogram|heatmap|distribution)\b/i.test(
+      message,
+    ) ||
+      /\b(matplotlib|seaborn|plotly|figure|diagram|image)\b/i.test(message) ||
+      /\b(show|display|draw)\b/i.test(message));
+
+  console.log(
+    `${LOG_PREFIX} isDatabaseOperation: ${isDatabaseOperation}, needsVisualization: ${needsVisualization}`,
+  );
+
   let forcedToolRetry = false;
   let secondRetry = false;
+  let pythonWasCalled = false;
+  let sqlWasCalled = false;
 
   let response = await openaiClient.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -345,6 +399,7 @@ export const runAgent = async ({
           : {};
 
       if (toolCall.function.name === "run_sql") {
+        sqlWasCalled = true;
         const sqlArgs = parsedArgs as { query?: string; params?: unknown[] };
         console.log(`${LOG_PREFIX} [run_sql] Query: ${sqlArgs.query}`);
         console.log(
@@ -388,6 +443,7 @@ export const runAgent = async ({
           };
         }
       } else if (toolCall.function.name === "run_python") {
+        pythonWasCalled = true;
         const pyArgs = parsedArgs as {
           code?: string;
           csv?: string;
@@ -436,11 +492,77 @@ export const runAgent = async ({
       conversation.push(toolResultMessage);
     }
 
-    response = await openaiClient.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: conversation,
-      tools: TOOLS,
-    });
+    // Check if visualization was requested but Python wasn't called yet
+    if (needsVisualization && sqlWasCalled && !pythonWasCalled) {
+      console.warn(
+        `${LOG_PREFIX} Visualization requested: SQL was called but Python was NOT. Forcing run_python execution.`,
+      );
+      response = await openaiClient.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          ...conversation,
+          {
+            role: "system",
+            content:
+              "CRITICAL: You fetched data but DID NOT create the visualization! You MUST now call run_python tool to generate the chart image. Convert the SQL result to CSV format and pass it to run_python with matplotlib code that creates the requested visualization. DO THIS NOW.",
+          },
+        ],
+        tools: TOOLS,
+        tool_choice: "required",
+      });
+    } else if (needsVisualization && sqlWasCalled && pythonWasCalled) {
+      // Both SQL and Python were called successfully - get final response and exit
+      console.log(
+        `${LOG_PREFIX} Visualization complete: Both SQL and Python executed successfully. Getting final response.`,
+      );
+      response = await openaiClient.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: conversation,
+        tools: TOOLS,
+      });
+
+      // Check if there are no more tool calls - if so, we're done
+      const finalToolCalls =
+        response.choices[0]?.message?.tool_calls?.filter(
+          (item) => item.type === "function" && "function" in item,
+        ) ?? [];
+
+      if (finalToolCalls.length === 0) {
+        console.log(
+          `${LOG_PREFIX} Visualization workflow complete, exiting loop`,
+        );
+        return {
+          reply:
+            response.choices[0]?.message?.content ??
+            "Visualization created successfully.",
+          toolOutput,
+        };
+      }
+    } else {
+      response = await openaiClient.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: conversation,
+        tools: TOOLS,
+      });
+    }
+  }
+
+  // If we exit the loop, check if visualization was completed successfully
+  if (
+    needsVisualization &&
+    pythonWasCalled &&
+    toolOutput &&
+    !toolOutput.error
+  ) {
+    console.log(
+      `${LOG_PREFIX} Visualization completed successfully (after loop exit)`,
+    );
+    return {
+      reply:
+        response.choices[0]?.message?.content ??
+        "I've created the visualization based on your data. You can see the chart and download the results above.",
+      toolOutput,
+    };
   }
 
   return {

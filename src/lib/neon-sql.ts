@@ -14,7 +14,9 @@ interface NeonSqlResult {
   fields: string[];
 }
 
-const READ_ONLY_QUERY_REGEX = /^\s*(select|with|show|explain|values)\b/i;
+// Allowed SQL operations: DDL (Data Definition) and DML (Data Manipulation)
+const ALLOWED_QUERY_REGEX =
+  /^\s*(select|with|show|explain|values|insert|update|delete|create|alter|drop|truncate)\b/i;
 
 const normalizeQuery = (query: string) => {
   console.log(`${LOG_PREFIX} Normalizing query: ${query.substring(0, 100)}...`);
@@ -29,9 +31,9 @@ const normalizeQuery = (query: string) => {
     console.error(`${LOG_PREFIX} ERROR: Multiple statements detected`);
     throw new Error("Only a single SQL statement is allowed.");
   }
-  if (!READ_ONLY_QUERY_REGEX.test(withoutTrailingSemicolon)) {
-    console.error(`${LOG_PREFIX} ERROR: Non-read-only query detected`);
-    throw new Error("Only read-only SQL statements are allowed.");
+  if (!ALLOWED_QUERY_REGEX.test(withoutTrailingSemicolon)) {
+    console.error(`${LOG_PREFIX} ERROR: Disallowed SQL operation`);
+    throw new Error("This SQL operation is not allowed.");
   }
 
   console.log(`${LOG_PREFIX} Query normalized successfully`);
