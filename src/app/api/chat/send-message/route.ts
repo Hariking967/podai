@@ -130,7 +130,7 @@ export async function POST(req: Request) {
       imageFileName?: string;
       imageBucket?: string;
       imagePath?: string;
-      output: typeof agentResult.toolOutput;
+      output?: unknown;
     } | null = null;
 
     // Step 6: Upload to Supabase if there's tool output

@@ -153,6 +153,9 @@ export function ChatInterface({
 
   useEffect(() => {
     const controller = new AbortController();
+    const isAbortError = (error: unknown) =>
+      (error instanceof DOMException && error.name === "AbortError") ||
+      (error instanceof Error && /aborted|abort/i.test(error.message || ""));
 
     const fetchSupabaseJson = async (bucket: string, path: string) => {
       const key = `${bucket}/${path}`;
@@ -186,6 +189,9 @@ export function ChatInterface({
           [key]: normalizeExecutionPayload(json),
         }));
       } catch (error) {
+        if (controller.signal.aborted || isAbortError(error)) {
+          return;
+        }
         const message =
           error instanceof Error ? error.message : "Unknown error";
         setSupabaseErrors((prev) => ({ ...prev, [key]: message }));
@@ -213,6 +219,9 @@ export function ChatInterface({
 
         setSupabaseImageUrls((prev) => ({ ...prev, [key]: signedUrl }));
       } catch (error) {
+        if (controller.signal.aborted || isAbortError(error)) {
+          return;
+        }
         const message =
           error instanceof Error ? error.message : "Unknown error";
         setSupabaseImageErrors((prev) => ({ ...prev, [key]: message }));
@@ -275,6 +284,9 @@ export function ChatInterface({
         return supabasePayloads[key] ?? null;
       }
       if (supabaseErrors[key] && message.data_location?.output) {
+        return normalizeExecutionPayload(message.data_location.output);
+      }
+      if (message.data_location?.output) {
         return normalizeExecutionPayload(message.data_location.output);
       }
       return null;
@@ -553,7 +565,24 @@ export function ChatInterface({
   const handleDownload = async (message: ChatMessage) => {
     const bucket = message.data_location?.bucket;
     const path = message.data_location?.path;
-    if (!bucket || !path) return;
+    if (!bucket || !path) {
+      if (message.data_location?.output) {
+        const blob = new Blob(
+          [JSON.stringify(message.data_location.output, null, 2)],
+          { type: "application/json" },
+        );
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = message.data_location?.fileName || "results.json";
+        link.rel = "noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+      return;
+    }
 
     const key = `${bucket}/${path}`;
     setDownloadBusy((prev) => ({ ...prev, [key]: true }));

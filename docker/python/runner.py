@@ -2,8 +2,60 @@ import json
 import os
 import sys
 import traceback
+import base64
 from contextlib import redirect_stdout
-from io import StringIO
+from io import StringIO, BytesIO
+
+# Make helpers module available
+sys.path.insert(0, '/')
+
+
+def process_result(result):
+    """
+    Process the result to ensure images are properly base64 encoded.
+    Looks for matplotlib figures and converts them automatically.
+    """
+    if result is None:
+        return None
+    
+    # If result is a matplotlib figure, convert it to base64
+    try:
+        import matplotlib.pyplot as plt
+        if hasattr(result, 'savefig'):  # It's a matplotlib figure
+            buf = BytesIO()
+            result.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+            plt.close(result)
+            buf.seek(0)
+            img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+            return {
+                "image_base64": img_base64,
+                "image_mime": "image/png",
+                "type": "matplotlib_figure"
+            }
+    except ImportError:
+        pass
+    
+    # If result is a dict, check for figure objects within it
+    if isinstance(result, dict):
+        processed_result = {}
+        for key, value in result.items():
+            if hasattr(value, 'savefig'):  # matplotlib figure in dict
+                try:
+                    import matplotlib.pyplot as plt
+                    buf = BytesIO()
+                    value.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+                    plt.close(value)
+                    buf.seek(0)
+                    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                    processed_result['image_base64'] = img_base64
+                    processed_result['image_mime'] = 'image/png'
+                except Exception:
+                    pass
+            else:
+                processed_result[key] = value
+        return processed_result
+    
+    return result
 
 
 def main():
@@ -30,9 +82,12 @@ def main():
         with open(f"/work/{safe_name}", "w", encoding="utf-8") as f:
             f.write(content)
 
+    # Enhanced environment with helper utilities
     local_env = {
         "__name__": "__main__",
         "INPUT_CSV_PATH": "/work/input.csv",
+        "base64": base64,
+        "BytesIO": BytesIO,
     }
 
     stdout_buffer = StringIO()
@@ -43,6 +98,8 @@ def main():
         with redirect_stdout(stdout_buffer):
             exec(code, local_env)
         result = local_env.get("result")
+        # Process result to handle matplotlib figures
+        result = process_result(result)
     except Exception as exc:  # noqa: BLE001
         error = {
             "message": str(exc),
