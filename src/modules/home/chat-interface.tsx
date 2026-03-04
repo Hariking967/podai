@@ -316,7 +316,10 @@ export function ChatInterface({
     return [];
   };
 
-  const renderTable = (rows: Record<string, unknown>[], fields?: string[]) => {
+  const renderTable = (
+    rows: Record<string, unknown>[],
+    fields?: string[],
+  ): JSX.Element | null => {
     if (!rows.length) return null;
     const headers = fields?.length ? fields : Object.keys(rows[0] ?? {});
     const displayRows = rows.slice(0, 50);
@@ -351,7 +354,10 @@ export function ChatInterface({
     );
   };
 
-  const renderCorrelationMatrix = (labels: string[], matrix: number[][]) => {
+  const renderCorrelationMatrix = (
+    labels: string[],
+    matrix: number[][],
+  ): JSX.Element => {
     const maxAbs = Math.max(
       1,
       ...matrix.flatMap((row) => row.map((value) => Math.abs(value))),
@@ -403,7 +409,10 @@ export function ChatInterface({
     );
   };
 
-  const renderPlot = (plot: Record<string, unknown>, index: number) => {
+  const renderPlot = (
+    plot: Record<string, unknown>,
+    index: number,
+  ): JSX.Element | null => {
     const type = plot.type as string | undefined;
     const data = Array.isArray(plot.data)
       ? (plot.data as Record<string, unknown>[])
@@ -634,7 +643,7 @@ export function ChatInterface({
     }
   };
 
-  const renderVisuals = (message: ChatMessage) => {
+  const renderVisuals = (message: ChatMessage): JSX.Element | null => {
     const payload = getExecutionPayload(message);
     if (!payload) return null;
 
@@ -844,13 +853,13 @@ export function ChatInterface({
   };
 
   return (
-    <div className="flex h-full flex-col glass-panel relative rounded-2xl overflow-hidden m-4">
+    <div className="flex h-full flex-col glass-panel relative overflow-hidden">
       <div className="pointer-events-none absolute inset-x-1 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
       <div className="pointer-events-none absolute -top-32 right-10 h-64 w-64 rounded-full bg-neon-green/10 blur-[90px]" />
       <div className="pointer-events-none absolute -bottom-32 left-10 h-64 w-64 rounded-full bg-emerald-300/5 blur-[90px]" />
 
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-white/10 bg-zinc-950/35 backdrop-blur-xl relative z-20">
+      <div className="flex items-center justify-between p-4 border-b border-white/10 bg-zinc-950/35 backdrop-blur-xl relative z-20">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-neon-green/10 border border-neon-green/20 flex items-center justify-center shadow-[0_0_15px_rgba(74,222,128,0.15)] animate-float-slow">
             <Sparkles className="h-5 w-5 text-neon-green" />
@@ -974,7 +983,7 @@ export function ChatInterface({
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 p-6 relative z-10 bg-gradient-to-b from-transparent via-zinc-500/[0.04] to-zinc-500/[0.08] overflow-y-auto neon-scrollbar"
+        className="flex-1 p-3 relative z-10 bg-gradient-to-b from-transparent via-zinc-500/[0.04] to-zinc-500/[0.08] overflow-y-auto neon-scrollbar"
       >
         {messages.length === 0 ? (
           <motion.div
@@ -1180,7 +1189,7 @@ export function ChatInterface({
       </div>
 
       {/* Input Area (Floating Pill) */}
-      <div className="p-4 relative z-20 bg-transparent">
+      <div className="p-2 relative z-20 bg-transparent">
         <form
           onSubmit={handleSubmit}
           className="relative max-w-4xl mx-auto group"

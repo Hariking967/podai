@@ -210,10 +210,12 @@ export function ProjectLayout() {
         createdAt: new Date().toISOString(),
       });
     },
-    onSuccess: () => {
-      refetchChat();
+    onSuccess: (data) => {
+      // Keep optimistic message until the query updates
+      refetchChat().then(() => {
+        setOptimisticUserMessage(null);
+      });
       queryClient.invalidateQueries({ queryKey: ["chat", projectId] });
-      setOptimisticUserMessage(null);
     },
     onError: (err) => {
       setOptimisticUserMessage(null);
@@ -377,7 +379,7 @@ export function ProjectLayout() {
   };
 
   return (
-    <div className="h-screen w-full text-white pt-16 bg-[#0a0a0a] relative overflow-hidden">
+    <div className="h-screen w-full text-white pt-20 bg-[#0a0a0a] relative overflow-hidden">
       <div
         className="absolute inset-0 z-0 opacity-45"
         style={{
@@ -492,7 +494,7 @@ export function ProjectLayout() {
               </Dialog>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+            <div className="flex-1 overflow-y-auto p-2 space-y-3 neon-scrollbar">
               {projectList.map((project, i) => (
                 <Link key={project.id} href={`/${project.name}`}>
                   <motion.div
@@ -547,8 +549,8 @@ export function ProjectLayout() {
           minSize={30}
           className="bg-gradient-to-b from-[#2b2100]/80 via-[#120c00]/90 to-[#0a0a0a] border-r border-[#3a2a12]"
         >
-          <main className="h-full overflow-y-auto p-6">
-            <div className="flex items-center justify-between mb-4 rounded-2xl border border-[#5a4318]/70 bg-gradient-to-r from-[#3a2a00]/70 via-[#1a1200]/80 to-[#0f0f0f]/85 backdrop-blur-xl px-4 py-3">
+          <main className="h-full overflow-y-auto neon-scrollbar p-4">
+            <div className="flex items-center justify-between mb-4 border border-[#5a4318]/70 bg-gradient-to-r from-[#3a2a00]/70 via-[#1a1200]/80 to-[#0f0f0f]/85 backdrop-blur-xl px-4 py-3">
               <div>
                 <div className="text-xs uppercase tracking-widest text-neutral-500">
                   Table Viewer
@@ -563,21 +565,16 @@ export function ProjectLayout() {
             </div>
 
             {!projectId ? (
-              <div className="h-[70vh] flex items-center justify-center text-neutral-500 text-sm border border-gray-800 rounded-2xl bg-[#111111]/85 backdrop-blur-xl">
+              <div className="flex items-center justify-center text-neutral-500 text-sm border border-gray-800 bg-[#111111]/85 backdrop-blur-xl py-20">
                 Select a project to view tables.
               </div>
             ) : (
               <ResizablePanelGroup
                 direction="horizontal"
-                className="h-[calc(100%-2.5rem)]"
+                className="min-h-[400px] max-h-[calc(100vh-300px)]"
               >
-                <ResizablePanel
-                  defaultSize={24}
-                  minSize={16}
-                  maxSize={38}
-                  className="pr-2"
-                >
-                  <div className="h-full bg-gradient-to-b from-[#3b2a00]/75 via-[#1b1300]/85 to-[#101010]/90 border border-[#5a4318]/70 rounded-2xl p-3 overflow-y-auto backdrop-blur-xl">
+                <ResizablePanel defaultSize={24} minSize={16} maxSize={38}>
+                  <div className="h-full bg-gradient-to-b from-[#3b2a00]/75 via-[#1b1300]/85 to-[#101010]/90 border border-[#5a4318]/70 p-2 overflow-y-auto backdrop-blur-xl neon-scrollbar">
                     <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">
                       Tables
                     </div>
@@ -624,9 +621,9 @@ export function ProjectLayout() {
                   className="bg-transparent hover:bg-neon-green/15 transition-colors"
                 />
 
-                <ResizablePanel defaultSize={76} minSize={45} className="pl-2">
-                  <div className="h-full bg-gradient-to-br from-[#e5e7eb]/10 via-[#9ca3af]/10 to-[#6b7280]/10 border border-[#8b8f94]/40 rounded-2xl p-4 overflow-hidden flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
-                    <div className="flex-1 overflow-auto">
+                <ResizablePanel defaultSize={76} minSize={45}>
+                  <div className="h-full bg-gradient-to-br from-[#e5e7eb]/10 via-[#9ca3af]/10 to-[#6b7280]/10 border border-[#8b8f94]/40 p-2 flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+                    <div className="overflow-auto neon-scrollbar max-h-[calc(100vh-350px)]">
                       {tableRowsLoading && (
                         <div className="text-xs text-neutral-500">
                           Loading table data...
@@ -649,7 +646,7 @@ export function ProjectLayout() {
                                   {Object.keys(tableRows[0]).map((column) => (
                                     <TableHead
                                       key={column}
-                                      className="text-zinc-300"
+                                      className="text-[#d4af37] font-bold bg-[#3a2a12]/60 border-b border-[#d4af37]/30"
                                     >
                                       {column}
                                     </TableHead>
