@@ -786,10 +786,14 @@ export function ChatInterface({
 
         {!sqlRows && arrayTable && renderTable(arrayTable)}
 
-        {!sqlRows &&
-          !arrayTable &&
-          fallbackTable &&
-          renderTable(fallbackTable as Record<string, unknown>[])}
+        {
+          (!sqlRows &&
+            !arrayTable &&
+            fallbackTable &&
+            renderTable(
+              fallbackTable as Record<string, unknown>[],
+            )) as ReactNode
+        }
 
         {!sqlRows &&
           !arrayTable &&
