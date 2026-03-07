@@ -323,12 +323,23 @@ export const runAgent = async ({
   let pythonWasCalled = false;
   let sqlWasCalled = false;
 
-  let response = await openaiClient.chat.completions.create({
-    model: "gpt-4.1-mini",
-    messages: input,
-    tools: TOOLS,
-    tool_choice: needsVisualization ? "required" : "auto",
-  });
+  let response;
+  try {
+    response = await openaiClient.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: input,
+      tools: TOOLS,
+      tool_choice: needsVisualization ? "required" : "auto",
+    });
+  } catch (error) {
+    console.error(`${LOG_PREFIX} OpenAI API call failed:`, error);
+    const errorMessage =
+      error instanceof Error ? error.message : "OpenAI API call failed";
+    return {
+      reply: `Sorry, I encountered an error: ${errorMessage}. Please try again or rephrase your question.`,
+      toolOutput: null,
+    };
+  }
 
   console.log(
     `${LOG_PREFIX} OpenAI response received, finish_reason: ${response.choices[0]?.finish_reason}`,
@@ -353,20 +364,30 @@ export const runAgent = async ({
           `${LOG_PREFIX} No tool calls for visualization request, retrying with strict tool instruction`,
         );
         forcedToolRetry = true;
-        response = await openaiClient.chat.completions.create({
-          model: "gpt-4.1-mini",
-          messages: [
-            ...conversation,
-            {
-              role: "system",
-              content:
-                "CRITICAL: You must call tools now. For visualization requests, first call run_sql to fetch the needed rows, then call run_python to render a matplotlib chart and return result.image_base64 and result.image_mime. Do not answer without using tools. DO NOT return Python code as text.",
-            },
-          ],
-          tools: TOOLS,
-          tool_choice: "required",
-        });
-        continue;
+        try {
+          response = await openaiClient.chat.completions.create({
+            model: "gpt-4.1-mini",
+            messages: [
+              ...conversation,
+              {
+                role: "system",
+                content:
+                  "CRITICAL: You must call tools now. For visualization requests, first call run_sql to fetch the needed rows, then call run_python to render a matplotlib chart and return result.image_base64 and result.image_mime. Do not answer without using tools. DO NOT return Python code as text.",
+              },
+            ],
+            tools: TOOLS,
+            tool_choice: "required",
+          });
+          continue;
+        } catch (error) {
+          console.error(`${LOG_PREFIX} OpenAI retry failed:`, error);
+          return {
+            reply:
+              assistantMessage?.content ??
+              "Sorry, I encountered an error while processing your request. Please try again.",
+            toolOutput,
+          };
+        }
       }
 
       if (needsVisualization && forcedToolRetry && !secondRetry) {
@@ -374,20 +395,30 @@ export const runAgent = async ({
           `${LOG_PREFIX} Second retry: AI still not calling tools, forcing with stronger message`,
         );
         secondRetry = true;
-        response = await openaiClient.chat.completions.create({
-          model: "gpt-4.1-mini",
-          messages: [
-            ...conversation,
-            {
-              role: "user",
-              content:
-                "Execute the visualization using run_python tool RIGHT NOW. Do not return code as text. Call the run_python tool with the matplotlib code.",
-            },
-          ],
-          tools: TOOLS,
-          tool_choice: "required",
-        });
-        continue;
+        try {
+          response = await openaiClient.chat.completions.create({
+            model: "gpt-4.1-mini",
+            messages: [
+              ...conversation,
+              {
+                role: "user",
+                content:
+                  "Execute the visualization using run_python tool RIGHT NOW. Do not return code as text. Call the run_python tool with the matplotlib code.",
+              },
+            ],
+            tools: TOOLS,
+            tool_choice: "required",
+          });
+          continue;
+        } catch (error) {
+          console.error(`${LOG_PREFIX} OpenAI second retry failed:`, error);
+          return {
+            reply:
+              assistantMessage?.content ??
+              "Sorry, I encountered an error while processing your request. Please try again.",
+            toolOutput,
+          };
+        }
       }
 
       console.log(`${LOG_PREFIX} No tool calls, returning final response`);
@@ -513,53 +544,98 @@ export const runAgent = async ({
       console.warn(
         `${LOG_PREFIX} Visualization requested: SQL was called but Python was NOT. Forcing run_python execution.`,
       );
-      response = await openaiClient.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: [
-          ...conversation,
-          {
-            role: "system",
-            content:
-              "CRITICAL: You fetched data but DID NOT create the visualization! You MUST now call run_python tool to generate the chart image. Convert the SQL result to CSV format and pass it to run_python with matplotlib code that creates the requested visualization. DO THIS NOW.",
-          },
-        ],
-        tools: TOOLS,
-        tool_choice: "required",
-      });
+      try {
+        response = await openaiClient.chat.completions.create({
+          model: "gpt-4.1-mini",
+          messages: [
+            ...conversation,
+            {
+              role: "system",
+              content:
+                "CRITICAL: You fetched data but DID NOT create the visualization! You MUST now call run_python tool to generate the chart image. Convert the SQL result to CSV format and pass it to run_python with matplotlib code that creates the requested visualization. DO THIS NOW.",
+            },
+          ],
+          tools: TOOLS,
+          tool_choice: "required",
+        });
+      } catch (error) {
+        console.error(
+          `${LOG_PREFIX} OpenAI visualization retry failed:`,
+          error,
+        );
+        return {
+          reply:
+            "I fetched the data but encountered an error while creating the visualization. Here's what I found:\n\n" +
+            (assistantMessage?.content ?? "Data retrieved successfully."),
+          toolOutput,
+        };
+      }
     } else if (needsVisualization && sqlWasCalled && pythonWasCalled) {
       // Both SQL and Python were called successfully - get final response and exit
       console.log(
         `${LOG_PREFIX} Visualization complete: Both SQL and Python executed successfully. Getting final response.`,
       );
-      response = await openaiClient.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: conversation,
-        tools: TOOLS,
-      });
+      try {
+        response = await openaiClient.chat.completions.create({
+          model: "gpt-4.1-mini",
+          messages: conversation,
+          tools: TOOLS,
+        });
 
-      // Check if there are no more tool calls - if so, we're done
-      const finalToolCalls =
-        response.choices[0]?.message?.tool_calls?.filter(
-          (item) => item.type === "function" && "function" in item,
-        ) ?? [];
+        // Check if there are no more tool calls - if so, we're done
+        const finalToolCalls =
+          response.choices[0]?.message?.tool_calls?.filter(
+            (item) => item.type === "function" && "function" in item,
+          ) ?? [];
 
-      if (finalToolCalls.length === 0) {
-        console.log(
-          `${LOG_PREFIX} Visualization workflow complete, exiting loop`,
-        );
+        if (finalToolCalls.length === 0) {
+          console.log(
+            `${LOG_PREFIX} Visualization workflow complete, exiting loop`,
+          );
+          return {
+            reply:
+              response.choices[0]?.message?.content ??
+              "Visualization created successfully.",
+            toolOutput,
+          };
+        }
+      } catch (error) {
+        console.error(`${LOG_PREFIX} OpenAI final response failed:`, error);
         return {
           reply:
-            response.choices[0]?.message?.content ??
-            "Visualization created successfully.",
+            "Visualization created successfully. " +
+            (assistantMessage?.content ?? ""),
           toolOutput,
         };
       }
     } else {
-      response = await openaiClient.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: conversation,
-        tools: TOOLS,
-      });
+      try {
+        response = await openaiClient.chat.completions.create({
+          model: "gpt-4.1-mini",
+          messages: conversation,
+          tools: TOOLS,
+        });
+      } catch (error) {
+        console.error(`${LOG_PREFIX} OpenAI follow-up call failed:`, error);
+        // If we already have toolOutput, return it with a success message
+        if (toolOutput && !toolOutput.error) {
+          console.log(`${LOG_PREFIX} Returning tool output despite API error`);
+          return {
+            reply: sqlWasCalled
+              ? "Query executed successfully. See the results above."
+              : pythonWasCalled
+                ? "Code executed successfully. See the results above."
+                : "Request processed successfully.",
+            toolOutput,
+          };
+        }
+        // Otherwise return error
+        return {
+          reply:
+            "Sorry, I encountered an error while processing the results. Please try again.",
+          toolOutput,
+        };
+      }
     }
   }
 
@@ -575,16 +651,36 @@ export const runAgent = async ({
     );
     return {
       reply:
-        response.choices[0]?.message?.content ??
+        response?.choices[0]?.message?.content ??
         "I've created the visualization based on your data. You can see the chart and download the results above.",
       toolOutput,
     };
   }
 
+  // If we have successful tool output, return it
+  if (toolOutput && !toolOutput.error) {
+    console.log(`${LOG_PREFIX} Tool execution successful (after loop exit)`);
+    return {
+      reply:
+        response?.choices[0]?.message?.content ??
+        (sqlWasCalled
+          ? "Query executed successfully. See the results above."
+          : pythonWasCalled
+            ? "Code executed successfully. See the results above."
+            : "Request processed successfully."),
+      toolOutput,
+    };
+  }
+
+  // Fallback response
+  console.log(`${LOG_PREFIX} Returning fallback response`);
   return {
     reply:
-      response.choices[0]?.message?.content ??
-      "I could not finish the tool execution flow.",
+      response?.choices[0]?.message?.content ??
+      "I processed your request. " +
+        (toolOutput?.error
+          ? `However, there was an error: ${toolOutput.error.message}`
+          : ""),
     toolOutput,
   };
 };

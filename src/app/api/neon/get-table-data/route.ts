@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { Pool } from "@neondatabase/serverless";
+import { getNeonPool } from "@/lib/neon-pool";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -54,26 +54,21 @@ export async function GET(req: Request) {
     }
 
     const connectionString = await getProjectConnectionString(input.projectId);
-    console.log(`${LOG_PREFIX} Creating connection pool...`);
-    const pool = new Pool({ connectionString });
+    console.log(`${LOG_PREFIX} Getting connection pool...`);
+    const pool = getNeonPool(connectionString);
 
-    try {
-      // Use double quotes to preserve case sensitivity
-      const query = `select * from "${input.tableName}" limit $1`;
-      console.log(`${LOG_PREFIX} Executing query: ${query}`);
+    // Use double quotes to preserve case sensitivity
+    const query = `select * from "${input.tableName}" limit $1`;
+    console.log(`${LOG_PREFIX} Executing query: ${query}`);
 
-      const result = await pool.query<Record<string, unknown>>(query, [
-        input.limit,
-      ]);
-      console.log(
-        `${LOG_PREFIX} Query successful, rows returned: ${result.rows.length}`,
-      );
+    const result = await pool.query<Record<string, unknown>>(query, [
+      input.limit,
+    ]);
+    console.log(
+      `${LOG_PREFIX} Query successful, rows returned: ${result.rows.length}`,
+    );
 
-      return NextResponse.json(result.rows);
-    } finally {
-      await pool.end();
-      console.log(`${LOG_PREFIX} Connection pool closed`);
-    }
+    return NextResponse.json(result.rows);
   } catch (error) {
     console.error(`${LOG_PREFIX} ERROR:`, error);
     if (error instanceof z.ZodError) {

@@ -1,4 +1,4 @@
-import { Pool } from "@neondatabase/serverless";
+import { getNeonPool } from "./neon-pool";
 
 const LOG_PREFIX = "[Neon-SQL]";
 
@@ -62,12 +62,25 @@ export const runSqlOnNeon = async ({
 
   const sql = normalizeQuery(query);
 
-  console.log(`${LOG_PREFIX} Creating connection pool...`);
-  const pool = new Pool({ connectionString });
+  console.log(`${LOG_PREFIX} Getting connection pool...`);
+  const pool = getNeonPool(connectionString);
+
+  console.log(`${LOG_PREFIX} Executing query...`);
 
   try {
-    console.log(`${LOG_PREFIX} Executing query...`);
-    const result = await pool.query<Record<string, unknown>>(sql, params);
+    // Create a timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error("Query execution timeout (30 seconds)")),
+        30000,
+      );
+    });
+
+    // Race between query execution and timeout
+    const result = await Promise.race([
+      pool.query<Record<string, unknown>>(sql, params),
+      timeoutPromise,
+    ]);
 
     console.log(`${LOG_PREFIX} Query executed successfully`);
     console.log(
@@ -87,9 +100,5 @@ export const runSqlOnNeon = async ({
       error instanceof Error ? error.message : "Unknown SQL error";
     console.error(`${LOG_PREFIX} SQL execution failed: ${errorMessage}`);
     throw error;
-  } finally {
-    console.log(`${LOG_PREFIX} Closing connection pool...`);
-    await pool.end();
-    console.log(`${LOG_PREFIX} Connection pool closed`);
   }
 };
