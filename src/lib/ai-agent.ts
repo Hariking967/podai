@@ -5,7 +5,7 @@ import type {
   ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions";
 import { openaiClient } from "./openai-client";
-import { runPythonInDocker } from "./docker-python";
+import { runPythonCode, getExecutionEnvironment } from "./python-adapter";
 import { runSqlOnNeon } from "./neon-sql";
 
 const LOG_PREFIX = "[AI-Agent]";
@@ -506,7 +506,12 @@ export const runAgent = async ({
           `${LOG_PREFIX} [run_python] Files count: ${Object.keys(pyArgs.files ?? {}).length}`,
         );
 
-        toolOutput = await runPythonInDocker({
+        const execEnv = getExecutionEnvironment();
+        console.log(
+          `${LOG_PREFIX} [run_python] Execution environment: ${execEnv.platform}`,
+        );
+
+        toolOutput = await runPythonCode({
           code: pyArgs.code ?? "",
           csv: pyArgs.csv ?? "",
           files: pyArgs.files ?? {},

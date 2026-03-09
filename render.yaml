@@ -1,0 +1,66 @@
+# ================================
+# Render Configuration for XBase
+# ================================
+# Deploys with Docker support for Python visualizations
+# ================================
+
+services:
+  # Main application service using Docker
+  - type: web
+    name: xbase-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    # Resource plan
+    plan: starter # Change to 'standard' for production
+
+    # Port configuration
+    dockerCommand: node server.js
+
+    # Environment variables (set these in Render dashboard)
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: DATABASE_URL
+        sync: false # Set in Render dashboard
+
+      - key: OPENAI_API_KEY
+        sync: false # Set in Render dashboard
+
+      - key: BETTER_AUTH_SECRET
+        sync: false # Set in Render dashboard
+
+      - key: BETTER_AUTH_URL
+        sync: false # Set to your Render URL
+
+      - key: SUPABASE_URL
+        sync: false # Set in Render dashboard
+
+      - key: SUPABASE_SECRET_KEY
+        sync: false # Set in Render dashboard
+
+      - key: DOCKER_AVAILABLE
+        value: "false" # Docker-in-Docker not available on Render
+
+    # Health check
+    healthCheckPath: /api/hello
+
+    # Auto-deploy from main branch
+    autoDeploy: true
+
+# ================================
+# IMPORTANT NOTE:
+# ================================
+# Render does NOT support Docker-in-Docker (running Docker containers inside Docker).
+# The Python visualization features will NOT work on Render with this setup.
+#
+# For full Python/visualization support, use one of these alternatives:
+# 1. Railway - Supports Docker natively
+# 2. Fly.io - Supports Docker natively
+# 3. AWS ECS/Fargate - Full Docker support
+# 4. Deploy a separate Python microservice for visualizations
+#
+# This configuration will deploy your app, but visualization requests
+# will return a helpful error message explaining the limitation.
