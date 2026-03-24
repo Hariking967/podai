@@ -69,10 +69,12 @@ export async function GET(req: Request) {
           const rowsFromDb = await db.query.executionResults.findMany({
             where: inArray(executionResults.messageId, messageIds),
           });
-          executionRows = rowsFromDb.map((row) => ({
-            messageId: row.messageId,
-            executionJson: row.executionJson,
-          }));
+          executionRows = rowsFromDb
+            .filter((row) => !!row.messageId)
+            .map((row) => ({
+              messageId: row.messageId as string,
+              executionJson: row.executionJson,
+            }));
         }
       } catch {
         executionRows = [];
