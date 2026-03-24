@@ -9,6 +9,7 @@ interface PythonExecutionRequest {
   code: string;
   csv?: string;
   files?: Record<string, string>;
+  inputData?: unknown;
   timeoutMs?: number;
 }
 
@@ -86,6 +87,7 @@ export const runPythonInDocker = async ({
   code,
   csv,
   files,
+  inputData,
   timeoutMs = 20000,
 }: PythonExecutionRequest): Promise<PythonExecutionResult> => {
   console.log(`${LOG_PREFIX} runPythonInDocker called`);
@@ -102,6 +104,7 @@ export const runPythonInDocker = async ({
       code,
       csv: csv ?? "",
       files: files ?? {},
+      input_data: inputData ?? null,
     };
     fs.writeFileSync(
       path.join(tempDir, "request.json"),

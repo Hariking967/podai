@@ -5,7 +5,17 @@ import {
   boolean,
   jsonb,
   primaryKey,
+  pgEnum,
 } from "drizzle-orm/pg-core";
+
+export const collaboratorRole = pgEnum("collaborator_role", [
+  "owner",
+  "editor",
+  "viewer",
+]);
+
+export const executionType = pgEnum("execution_type", ["python", "sql"]);
+export const executionStatus = pgEnum("execution_status", ["success", "error"]);
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -92,6 +102,7 @@ export const projectCollaborators = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    role: collaboratorRole("role").notNull().default("viewer"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => /* @__PURE__ */ new Date())
       .notNull(),
@@ -131,12 +142,47 @@ export const messages = pgTable("messages", {
 
 export const executionResults = pgTable("execution_results", {
   id: text("id").primaryKey(),
-  messageId: text("message_id")
-    .notNull()
-    .references(() => messages.id, { onDelete: "cascade" }),
+  messageId: text("message_id").references(() => messages.id, {
+    onDelete: "cascade",
+  }),
+  type: executionType("type").notNull().default("python"),
+  status: executionStatus("status").notNull().default("success"),
+  errorMessage: text("error_message"),
   executionJson: jsonb("execution_json").notNull(),
   stdout: text("stdout"),
   createdAt: timestamp("created_at")
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
+});
+
+export const queryHistory = pgTable("query_history", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  query: text("query").notNull(),
+  type: executionType("type").notNull(),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
+
+export const projectApiKeys = pgTable("project_api_keys", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  apiKey: text("api_key").notNull().unique(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+  isActive: boolean("is_active")
+    .notNull()
+    .$defaultFn(() => true),
 });

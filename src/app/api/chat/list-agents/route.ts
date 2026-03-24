@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { chats, projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getProjectRole, getSessionUserId } from "@/lib/project-permissions";
 
 const ListAgentsSchema = z.object({
   projectId: z.string().min(1),
@@ -14,6 +15,15 @@ export async function GET(req: Request) {
     const input = ListAgentsSchema.parse({
       projectId: url.searchParams.get("projectId"),
     });
+
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+    const role = await getProjectRole(input.projectId, sessionUserId);
+    if (!role) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
 
     const project = await db.query.projects.findFirst({
       where: eq(projects.id, input.projectId),

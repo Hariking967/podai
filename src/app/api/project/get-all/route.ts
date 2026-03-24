@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { projectCollaborators, projects, user } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
+import { getSessionUserId } from "@/lib/project-permissions";
 
 const GetAllProjectsSchema = z.object({
   userId: z.string().min(1),
@@ -15,15 +16,23 @@ export async function GET(req: Request) {
       userId: url.searchParams.get("userId"),
     });
 
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+    if (input.userId && input.userId !== sessionUserId) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
+
     const ownedProjects = await db.query.projects.findMany({
-      where: eq(projects.userId, input.userId),
+      where: eq(projects.userId, sessionUserId),
       orderBy: (projects, { desc }) => [desc(projects.createdAt)],
     });
 
     let collaboratorRows: Array<{ projectId: string }> = [];
     try {
       collaboratorRows = await db.query.projectCollaborators.findMany({
-        where: eq(projectCollaborators.userId, input.userId),
+        where: eq(projectCollaborators.userId, sessionUserId),
       });
     } catch (collabError) {
       console.warn(
@@ -38,6 +47,10 @@ export async function GET(req: Request) {
         (projectId) =>
           !ownedProjects.some((project) => project.id === projectId),
       );
+
+    const collaboratorRoleMap = new Map(
+      collaboratorRows.map((row) => [row.projectId, row.role ?? "viewer"]),
+    );
 
     const sharedProjects = collaboratorProjectIds.length
       ? await db.query.projects.findMany({
@@ -66,7 +79,11 @@ export async function GET(req: Request) {
     const response = combinedProjects.map((project) => ({
       ...project,
       hostName: ownerMap.get(project.userId) ?? "Host",
-      isOwner: project.userId === input.userId,
+      isOwner: project.userId === sessionUserId,
+      role:
+        project.userId === sessionUserId
+          ? "owner"
+          : (collaboratorRoleMap.get(project.id) ?? "viewer"),
     }));
 
     return NextResponse.json(response);

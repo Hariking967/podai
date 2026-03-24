@@ -68,6 +68,7 @@
     "server-only": "^0.0.1",
     "sonner": "^2.0.6",
     "tailwind-merge": "^3.3.1",
+    "three": "^0.166.1",
     "vaul": "^1.1.2",
     "zod": "^3.25.7"
   },

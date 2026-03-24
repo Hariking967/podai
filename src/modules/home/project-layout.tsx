@@ -51,6 +51,7 @@ interface ProjectListItem {
   chatId?: string | null;
   hostName?: string | null;
   isOwner?: boolean;
+  role?: "owner" | "editor" | "viewer";
 }
 
 interface ChatListItem {
@@ -148,6 +149,12 @@ export function ProjectLayout() {
   const [collaborateOpen, setCollaborateOpen] = useState(false);
   const [collaborateInput, setCollaborateInput] = useState("");
   const [collaborateBusy, setCollaborateBusy] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [apiKeys, setApiKeys] = useState<
+    Array<{ id: string; apiKey: string; createdAt: string; isActive: boolean }>
+  >([]);
+  const [apiKeyBusy, setApiKeyBusy] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
 
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
@@ -518,6 +525,52 @@ export function ProjectLayout() {
     }
   };
 
+  const fetchApiKeys = async () => {
+    if (!projectId) return;
+    setApiKeyError(null);
+    setApiKeyBusy(true);
+    try {
+      const response = await fetch(
+        `/api/project/api-keys?projectId=${encodeURIComponent(projectId)}`,
+      );
+      const payload = await response.json();
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || "Failed to fetch keys");
+      }
+      setApiKeys(payload.data ?? []);
+    } catch (error) {
+      setApiKeyError(
+        error instanceof Error ? error.message : "Failed to fetch keys",
+      );
+    } finally {
+      setApiKeyBusy(false);
+    }
+  };
+
+  const handleCreateApiKey = async () => {
+    if (!projectId) return;
+    setApiKeyError(null);
+    setApiKeyBusy(true);
+    try {
+      const response = await fetch("/api/project/create-api-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || "Failed to create key");
+      }
+      setApiKeys((prev) => [payload.data, ...prev]);
+    } catch (error) {
+      setApiKeyError(
+        error instanceof Error ? error.message : "Failed to create key",
+      );
+    } finally {
+      setApiKeyBusy(false);
+    }
+  };
+
   const displayedMessages = optimisticUserMessage
     ? [...((chatData?.messages as ChatListItem[]) || []), optimisticUserMessage]
     : (chatData?.messages as ChatListItem[]) || [];
@@ -858,15 +911,28 @@ export function ProjectLayout() {
                   )}
                 </div>
                 {currentProject?.isOwner && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => setCollaborateOpen(true)}
-                    className="h-9 px-3 rounded-full border border-neon-green/40 bg-black/30 text-neon-green hover:bg-neon-green/10"
-                  >
-                    <Users className="h-4 w-4 mr-2" />
-                    Collaborate
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setCollaborateOpen(true)}
+                      className="h-9 px-3 rounded-full border border-neon-green/40 bg-black/30 text-neon-green hover:bg-neon-green/10"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Collaborate
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setConnectOpen(true);
+                        fetchApiKeys();
+                      }}
+                      className="h-9 px-3 rounded-full border border-blue-500/40 bg-black/30 text-blue-300 hover:bg-blue-500/10"
+                    >
+                      Connect
+                    </Button>
+                  </div>
                 )}
               </div>
               <div className="flex items-center gap-3">
@@ -1122,6 +1188,62 @@ export function ProjectLayout() {
               >
                 {collaborateBusy ? "Adding..." : "Add"}
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
+        <DialogContent className="glass-panel border border-white/10 text-white sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">
+              Connect API
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-xs text-neutral-400">
+              Use the API key with <code>x-api-key</code> to call
+              <code>
+                {" "}
+                {typeof window !== "undefined"
+                  ? `${window.location.origin}/api/external/run`
+                  : "/api/external/run"}
+              </code>
+              .
+            </div>
+            {apiKeyError && (
+              <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-md p-3">
+                {apiKeyError}
+              </div>
+            )}
+            <div className="flex justify-end">
+              <Button
+                onClick={handleCreateApiKey}
+                disabled={apiKeyBusy}
+                className="h-10 px-4 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-200 hover:bg-blue-500/30"
+              >
+                {apiKeyBusy ? "Generating..." : "Generate key"}
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {apiKeys.length === 0 && (
+                <div className="text-xs text-neutral-500">No keys yet.</div>
+              )}
+              {apiKeys.map((key) => (
+                <div
+                  key={key.id}
+                  className="rounded-md border border-white/10 bg-black/40 p-3 text-xs"
+                >
+                  <div className="text-neutral-400">API Key</div>
+                  <div className="text-zinc-100 break-all mt-1">
+                    {key.apiKey}
+                  </div>
+                  <div className="text-neutral-500 mt-2">
+                    {key.isActive ? "Active" : "Inactive"} •{" "}
+                    {new Date(key.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </DialogContent>

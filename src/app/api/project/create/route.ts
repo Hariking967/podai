@@ -4,17 +4,23 @@ import { nanoid } from "nanoid";
 import { db } from "@/db";
 import { chats, projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getSessionUserId } from "@/lib/project-permissions";
 
 const CreateProjectSchema = z.object({
   name: z.string().trim().min(1),
   neonApiKey: z.string().trim().min(1),
-  userId: z.string().min(1),
+  userId: z.string().min(1).optional(),
 });
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const input = CreateProjectSchema.parse(body);
+
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
 
     const projectId = nanoid();
     const [newProject] = await db
@@ -23,7 +29,7 @@ export async function POST(req: Request) {
         id: projectId,
         name: input.name,
         neonApiKey: input.neonApiKey,
-        userId: input.userId,
+        userId: sessionUserId,
       })
       .returning();
 

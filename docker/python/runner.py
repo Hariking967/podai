@@ -70,6 +70,7 @@ def main():
     code = payload.get("code", "")
     csv_content = payload.get("csv", "")
     files = payload.get("files", {})
+    input_data = payload.get("input_data")
 
     if csv_content:
         with open("/work/input.csv", "w", encoding="utf-8") as f:
@@ -88,7 +89,22 @@ def main():
         "INPUT_CSV_PATH": "/work/input.csv",
         "base64": base64,
         "BytesIO": BytesIO,
+        "input_data": input_data,
     }
+
+    try:
+        import pandas as pd
+
+        if input_data is None:
+            local_env["df"] = pd.DataFrame()
+        elif isinstance(input_data, list):
+            local_env["df"] = pd.DataFrame(input_data)
+        elif isinstance(input_data, dict):
+            local_env["df"] = pd.DataFrame([input_data])
+        else:
+            local_env["df"] = pd.DataFrame()
+    except Exception:
+        local_env["df"] = None
 
     stdout_buffer = StringIO()
     result = None

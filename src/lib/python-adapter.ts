@@ -15,6 +15,7 @@ interface PythonExecutionRequest {
   code: string;
   csv?: string;
   files?: Record<string, string>;
+  inputData?: unknown;
   timeoutMs?: number;
 }
 
@@ -82,6 +83,7 @@ const executePythonViaAPI = async (
         code: request.code,
         csv: request.csv || "",
         files: request.files || {},
+        inputData: request.inputData ?? null,
         timeoutMs: request.timeoutMs || 20000,
       }),
     });

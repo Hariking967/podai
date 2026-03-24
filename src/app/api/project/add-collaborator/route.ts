@@ -3,17 +3,24 @@ import { z } from "zod";
 import { db } from "@/db";
 import { projectCollaborators, projects, user } from "@/db/schema";
 import { eq, or } from "drizzle-orm";
+import { getSessionUserId } from "@/lib/project-permissions";
 
 const AddCollaboratorSchema = z.object({
   projectId: z.string().min(1),
-  ownerId: z.string().min(1),
+  ownerId: z.string().min(1).optional(),
   identifier: z.string().trim().min(1),
+  role: z.enum(["owner", "editor", "viewer"]).optional(),
 });
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const input = AddCollaboratorSchema.parse(body);
+
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
 
     const project = await db.query.projects.findFirst({
       where: eq(projects.id, input.projectId),
@@ -26,7 +33,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (project.userId !== input.ownerId) {
+    if (project.userId !== sessionUserId) {
       return NextResponse.json(
         { message: "Only the project owner can add collaborators." },
         { status: 403 },
@@ -55,8 +62,12 @@ export async function POST(req: Request) {
       .values({
         projectId: input.projectId,
         userId: collaborator.id,
+        role: input.role ?? "viewer",
       })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: [projectCollaborators.projectId, projectCollaborators.userId],
+        set: { role: input.role ?? "viewer" },
+      });
 
     return NextResponse.json({
       message: "Collaborator added.",

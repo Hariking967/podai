@@ -9,6 +9,11 @@ import {
   uploadExecutionImage,
   uploadExecutionJson,
 } from "@/lib/supabase-storage";
+import {
+  getProjectRole,
+  getSessionUserId,
+  hasWriteAccess,
+} from "@/lib/project-permissions";
 
 const LOG_PREFIX = "[SendMessage]";
 
@@ -34,6 +39,21 @@ export async function POST(req: Request) {
     const input = SendMessageSchema.parse(body);
     console.log(`${LOG_PREFIX} Project ID: ${input.projectId}`);
     console.log(`${LOG_PREFIX} Message: ${input.message.substring(0, 100)}...`);
+
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+    const role = await getProjectRole(input.projectId, sessionUserId);
+    if (!role) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
+    if (!hasWriteAccess(role)) {
+      return NextResponse.json(
+        { message: "Read-only access for this project." },
+        { status: 403 },
+      );
+    }
 
     // Step 1: Get project and Neon connection string
     console.log(`${LOG_PREFIX} Step 1: Fetching project details...`);
@@ -260,10 +280,29 @@ export async function POST(req: Request) {
     if (agentResult.toolOutput) {
       console.log(`${LOG_PREFIX} Step 8: Inserting execution result...`);
       try {
+        const outputResult = agentResult.toolOutput.result as
+          | Record<string, unknown>
+          | null
+          | undefined;
+        const hasImage =
+          !!outputResult &&
+          ("image_base64" in outputResult || "imageBase64" in outputResult);
+        const hasRows =
+          !!outputResult &&
+          Array.isArray((outputResult as { rows?: unknown }).rows) &&
+          Array.isArray((outputResult as { fields?: unknown }).fields);
+        const executionType = hasRows && !hasImage ? "sql" : "python";
+        const executionStatus = agentResult.toolOutput.error
+          ? "error"
+          : "success";
+
         await db.insert(executionResults).values({
           id: nanoid(),
           messageId,
-          executionJson: dataLocation,
+          type: executionType,
+          status: executionStatus,
+          errorMessage: agentResult.toolOutput.error?.message ?? null,
+          executionJson: dataLocation ?? outputResult ?? { output: null },
           stdout: agentResult.toolOutput.prints ?? null,
         });
         console.log(`${LOG_PREFIX} Execution result inserted successfully`);

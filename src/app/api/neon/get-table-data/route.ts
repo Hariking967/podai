@@ -4,6 +4,7 @@ import { getNeonPool } from "@/lib/neon-pool";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getProjectRole, getSessionUserId } from "@/lib/project-permissions";
 
 const LOG_PREFIX = "[GetTableData]";
 const TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -42,6 +43,15 @@ export async function GET(req: Request) {
     console.log(`${LOG_PREFIX} Project ID: ${input.projectId}`);
     console.log(`${LOG_PREFIX} Table name: ${input.tableName}`);
     console.log(`${LOG_PREFIX} Limit: ${input.limit}`);
+
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+    const role = await getProjectRole(input.projectId, sessionUserId);
+    if (!role) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
 
     if (!TABLE_NAME_REGEX.test(input.tableName)) {
       console.error(
