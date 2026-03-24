@@ -53,10 +53,10 @@ export default function LandingPage() {
           </div>
 
           <h1 className="text-5xl md:text-8xl font-bold tracking-tight mb-6 text-white animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150 relative">
-            Build queries fast.
+            Build with AI, SQL, and Python.
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-neon-green to-emerald-400 drop-shadow-[0_0_15px_rgba(74,222,128,0.3)]">
-              Collaborate even faster.
+              Visualize and collaborate even faster.
             </span>
           </h1>
 
