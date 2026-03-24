@@ -29,7 +29,8 @@ export async function GET(req: Request) {
       orderBy: (projects, { desc }) => [desc(projects.createdAt)],
     });
 
-    let collaboratorRows: Array<{ projectId: string }> = [];
+    let collaboratorRows: Array<{ projectId: string; role?: string | null }> =
+      [];
     try {
       collaboratorRows = await db.query.projectCollaborators.findMany({
         where: eq(projectCollaborators.userId, sessionUserId),
