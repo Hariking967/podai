@@ -1,10 +1,19 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { ChatInterface } from "./chat-interface";
 import { Button } from "@/components/ui/button";
-import { Plus, Sparkles, Database, ChevronRight } from "lucide-react";
+import {
+  Plus,
+  Sparkles,
+  Database,
+  ChevronRight,
+  Users,
+  Code2,
+  TerminalSquare,
+  Play,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -33,12 +42,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ImperativePanelHandle } from "react-resizable-panels";
 
 interface ProjectListItem {
   id: string;
   name: string;
   neonApiKey?: string | null;
   chatId?: string | null;
+  hostName?: string | null;
+  isOwner?: boolean;
 }
 
 interface ChatListItem {
@@ -65,6 +77,18 @@ interface ChatResponse {
 interface AgentListResponse {
   activeChatId: string | null;
   agents: Array<{ id: string; name: string }>;
+}
+
+interface SqlExecutionResult {
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  fields: string[];
+}
+
+interface PythonExecutionResult {
+  prints: string;
+  result: unknown;
+  error: { message: string; traceback?: string } | null;
 }
 
 const getJson = async <T,>(url: string): Promise<T> => {
@@ -95,6 +119,7 @@ export function ProjectLayout() {
     (params?.project as string) || "",
   );
   const [open, setOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [optimisticUserMessage, setOptimisticUserMessage] =
@@ -104,6 +129,25 @@ export function ProjectLayout() {
   const [quickAskContext, setQuickAskContext] = useState<
     "tables" | "table" | null
   >(null);
+  const dashboardPanelRef = useRef<ImperativePanelHandle>(null);
+  const dashboardCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [tableSearch, setTableSearch] = useState("");
+  const [pythonDialogOpen, setPythonDialogOpen] = useState(false);
+  const [sqlDialogOpen, setSqlDialogOpen] = useState(false);
+  const [pythonCode, setPythonCode] = useState("");
+  const [sqlQuery, setSqlQuery] = useState("");
+  const [pythonOutput, setPythonOutput] =
+    useState<PythonExecutionResult | null>(null);
+  const [sqlOutput, setSqlOutput] = useState<SqlExecutionResult | null>(null);
+  const [pythonRunError, setPythonRunError] = useState<string | null>(null);
+  const [sqlRunError, setSqlRunError] = useState<string | null>(null);
+  const [pythonRunning, setPythonRunning] = useState(false);
+  const [sqlRunning, setSqlRunning] = useState(false);
+  const [collaborateOpen, setCollaborateOpen] = useState(false);
+  const [collaborateInput, setCollaborateInput] = useState("");
+  const [collaborateBusy, setCollaborateBusy] = useState(false);
 
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
@@ -121,6 +165,26 @@ export function ProjectLayout() {
 
   const currentProject = projectList.find((p) => p.name === currentProjectName);
   const projectId = currentProject?.id;
+  const pythonTemplate = useMemo(() => {
+    const connectionString = currentProject?.neonApiKey?.trim();
+    if (!connectionString) return "";
+    const safeUrl = JSON.stringify(connectionString);
+    return [
+      "import psycopg2",
+      "import pandas as pd",
+      "",
+      `DATABASE_URL = ${safeUrl}`,
+      "",
+      "conn = psycopg2.connect(DATABASE_URL)",
+      "query = \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;\"",
+      "df = pd.read_sql(query, conn)",
+      "print(df.head())",
+      "",
+      'result = df.to_dict(orient="records")',
+      "conn.close()",
+      "",
+    ].join("\n");
+  }, [currentProject?.neonApiKey]);
 
   const { data: chatData, refetch: refetchChat } = useQuery({
     queryKey: ["chat", projectId],
@@ -155,6 +219,27 @@ export function ProjectLayout() {
       setSelectedTable(tableNames[0]);
     }
   }, [selectedTable, tableNames]);
+
+  useEffect(() => {
+    if (dashboardPanelRef.current) {
+      dashboardPanelRef.current.collapse();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pythonDialogOpen && !pythonCode.trim() && pythonTemplate) {
+      setPythonCode(pythonTemplate);
+    }
+  }, [pythonDialogOpen, pythonCode, pythonTemplate]);
+
+  useEffect(() => {
+    if (sqlDialogOpen && !sqlQuery.trim()) {
+      const defaultQuery = selectedTable
+        ? `SELECT * FROM "${selectedTable}" LIMIT 20;`
+        : "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;";
+      setSqlQuery(defaultQuery);
+    }
+  }, [sqlDialogOpen, sqlQuery, selectedTable]);
 
   const { data: tableRows, isLoading: tableRowsLoading } = useQuery({
     queryKey: ["table-data", projectId, selectedTable],
@@ -334,6 +419,23 @@ export function ProjectLayout() {
     renameAgent.mutate({ projectId, chatId, name: name.trim() });
   };
 
+  const handleDashboardEnter = () => {
+    if (dashboardCloseTimer.current) {
+      clearTimeout(dashboardCloseTimer.current);
+      dashboardCloseTimer.current = null;
+    }
+    dashboardPanelRef.current?.expand();
+  };
+
+  const handleDashboardLeave = () => {
+    if (dashboardCloseTimer.current) {
+      clearTimeout(dashboardCloseTimer.current);
+    }
+    dashboardCloseTimer.current = setTimeout(() => {
+      dashboardPanelRef.current?.collapse();
+    }, 250);
+  };
+
   const openQuickAsk = (context: "tables" | "table") => {
     setQuickAskContext(context);
     setQuickAskOpen(true);
@@ -352,9 +454,170 @@ export function ProjectLayout() {
     setQuickAskOpen(false);
   };
 
+  const handleRunPython = async () => {
+    if (!projectId || !pythonCode.trim()) return;
+    setPythonRunning(true);
+    setPythonRunError(null);
+    setPythonOutput(null);
+    try {
+      const result = await postJson<PythonExecutionResult>(
+        "/api/python/execute",
+        {
+          projectId,
+          code: pythonCode,
+        },
+      );
+      setPythonOutput(result);
+    } catch (error) {
+      setPythonRunError(
+        error instanceof Error ? error.message : "Python execution failed",
+      );
+    } finally {
+      setPythonRunning(false);
+    }
+  };
+
+  const handleRunSql = async () => {
+    if (!projectId || !sqlQuery.trim()) return;
+    setSqlRunning(true);
+    setSqlRunError(null);
+    setSqlOutput(null);
+    try {
+      const result = await postJson<SqlExecutionResult>("/api/neon/run-sql", {
+        projectId,
+        query: sqlQuery,
+      });
+      setSqlOutput(result);
+    } catch (error) {
+      setSqlRunError(
+        error instanceof Error ? error.message : "SQL execution failed",
+      );
+    } finally {
+      setSqlRunning(false);
+    }
+  };
+
+  const handleAddCollaborator = async () => {
+    if (!projectId || !userId || !collaborateInput.trim()) return;
+    setCollaborateBusy(true);
+    try {
+      await postJson<{ message: string }>("/api/project/add-collaborator", {
+        projectId,
+        ownerId: userId,
+        identifier: collaborateInput.trim(),
+      });
+      toast.success("Collaborator added!");
+      setCollaborateInput("");
+      setCollaborateOpen(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add collaborator",
+      );
+    } finally {
+      setCollaborateBusy(false);
+    }
+  };
+
   const displayedMessages = optimisticUserMessage
     ? [...((chatData?.messages as ChatListItem[]) || []), optimisticUserMessage]
     : (chatData?.messages as ChatListItem[]) || [];
+
+  const filteredTables = (tableNames ?? []).filter((table) =>
+    table.toLowerCase().includes(tableSearch.trim().toLowerCase()),
+  );
+
+  const renderRowsTable = (
+    rows: Record<string, unknown>[],
+    fields?: string[],
+  ) => {
+    if (!rows.length) return null;
+    const headers = fields?.length ? fields : Object.keys(rows[0]);
+    return (
+      <div className="rounded-md border border-white/10 bg-black/25">
+        <Table className="text-xs text-zinc-200">
+          <TableHeader>
+            <TableRow className="border-white/10">
+              {headers.map((header) => (
+                <TableHead
+                  key={header}
+                  className="text-zinc-200 bg-black/40 border-b border-white/10"
+                >
+                  {header}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, rowIndex) => (
+              <TableRow key={rowIndex} className="border-white/5">
+                {headers.map((header) => (
+                  <TableCell key={header} className="text-zinc-100">
+                    {row[header] === null || row[header] === undefined
+                      ? "-"
+                      : String(row[header])}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    );
+  };
+
+  const renderPythonOutput = () => {
+    if (!pythonOutput) return null;
+    const result = pythonOutput.result as Record<string, unknown> | null;
+    const imageBase64 =
+      result && typeof result === "object"
+        ? (result.image_base64 as string | undefined) ||
+          (result.imageBase64 as string | undefined)
+        : undefined;
+    const imageMime =
+      result && typeof result === "object"
+        ? (result.image_mime as string | undefined) ||
+          (result.imageMime as string | undefined) ||
+          "image/png"
+        : "image/png";
+    const rows =
+      result && typeof result === "object" && Array.isArray(result.rows)
+        ? (result.rows as Record<string, unknown>[])
+        : null;
+    const fields =
+      result && typeof result === "object" && Array.isArray(result.fields)
+        ? (result.fields as string[])
+        : undefined;
+
+    return (
+      <div className="space-y-3">
+        {pythonOutput.prints && (
+          <pre className="text-xs whitespace-pre-wrap text-emerald-200 bg-black/40 border border-white/10 rounded-md p-3">
+            {pythonOutput.prints}
+          </pre>
+        )}
+        {pythonOutput.error && (
+          <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-md p-3">
+            {pythonOutput.error.message}
+          </div>
+        )}
+        {rows && renderRowsTable(rows, fields)}
+        {imageBase64 && (
+          <div className="border border-white/10 rounded-md overflow-hidden">
+            <img
+              src={`data:${imageMime};base64,${imageBase64}`}
+              alt="Python output"
+              className="w-full h-auto"
+            />
+          </div>
+        )}
+        {!rows && !imageBase64 && pythonOutput.result !== undefined && (
+          <pre className="text-xs whitespace-pre-wrap text-zinc-200 bg-black/30 border border-white/10 rounded-md p-3">
+            {JSON.stringify(pythonOutput.result, null, 2)}
+          </pre>
+        )}
+      </div>
+    );
+  };
 
   const CursorBackground = () => {
     const cursorRef = useRef<HTMLDivElement>(null);
@@ -402,12 +665,34 @@ export function ProjectLayout() {
         className="relative z-10 h-full w-full"
       >
         <ResizablePanel
+          ref={dashboardPanelRef}
           defaultSize={20}
           minSize={12}
           maxSize={32}
-          className="bg-[#0f0f0f]/95 backdrop-blur-xl border-r border-gray-800/80"
+          collapsible
+          collapsedSize={3}
+          onCollapse={() => setIsCollapsed(true)}
+          onExpand={() => setIsCollapsed(false)}
+          className="group relative bg-[#0f0f0f]/95 backdrop-blur-xl border-r border-gray-800/80 transition-all duration-300"
+          onMouseEnter={handleDashboardEnter}
+          onMouseLeave={handleDashboardLeave}
         >
-          <div className="h-full flex flex-col">
+          {/* Collapsed state indicator */}
+          <div
+            className={`absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-300 z-10 ${
+              isCollapsed ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <span className="[writing-mode:vertical-lr] rotate-180 text-sm font-bold tracking-widest text-neutral-500 group-hover:text-neon-green transition-colors">
+              DASHBOARD
+            </span>
+          </div>
+
+          <div
+            className={`h-full min-w-[240px] flex flex-col transition-opacity duration-150 ${
+              isCollapsed ? "opacity-0 pointer-events-none" : "opacity-100"
+            }`}
+          >
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800/80">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-400">
                 Dashboard
@@ -523,9 +808,16 @@ export function ProjectLayout() {
                       >
                         <Database className="w-4 h-4" />
                       </div>
-                      <span className="text-sm font-semibold text-zinc-200 truncate">
-                        {project.name}
-                      </span>
+                      <div className="min-w-0">
+                        <span className="text-sm font-semibold text-zinc-200 truncate block">
+                          {project.name}
+                        </span>
+                        {project.hostName && (
+                          <span className="text-[11px] text-neutral-500 block truncate">
+                            Host: {project.hostName}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-neon-green" />
                   </motion.div>
@@ -551,16 +843,54 @@ export function ProjectLayout() {
         >
           <main className="h-full overflow-y-auto neon-scrollbar p-4">
             <div className="flex items-center justify-between mb-4 border border-[#5a4318]/70 bg-gradient-to-r from-[#3a2a00]/70 via-[#1a1200]/80 to-[#0f0f0f]/85 backdrop-blur-xl px-4 py-3">
-              <div>
-                <div className="text-xs uppercase tracking-widest text-neutral-500">
-                  Table Viewer
+              <div className="flex items-center gap-4">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-neutral-500">
+                    Project
+                  </div>
+                  <div className="text-lg font-semibold text-zinc-100 mt-0.5">
+                    {currentProjectName || "Select a project"}
+                  </div>
+                  {currentProject?.hostName && (
+                    <div className="text-xs text-neutral-400 mt-1">
+                      Host: {currentProject.hostName}
+                    </div>
+                  )}
                 </div>
-                <div className="text-lg font-semibold text-zinc-100 mt-0.5">
-                  {selectedTable ? `Table: ${selectedTable}` : "Select a table"}
-                </div>
+                {currentProject?.isOwner && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setCollaborateOpen(true)}
+                    className="h-9 px-3 rounded-full border border-neon-green/40 bg-black/30 text-neon-green hover:bg-neon-green/10"
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Collaborate
+                  </Button>
+                )}
               </div>
-              <div className="text-xs text-neutral-300 rounded-full bg-neon-green/15 border border-neon-green/25 px-3 py-1">
-                {tableRows ? `${tableRows.length} rows loaded` : "0 rows"}
+              <div className="flex items-center gap-3">
+                <div className="text-xs text-neutral-300 rounded-full bg-neon-green/15 border border-neon-green/25 px-3 py-1">
+                  {tableRows ? `${tableRows.length} rows loaded` : "0 rows"}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setPythonDialogOpen(true)}
+                  className="h-9 px-3 rounded-full border border-[#5a4318]/70 bg-black/30 text-[#facc15] hover:bg-[#facc15]/10"
+                >
+                  <Code2 className="h-4 w-4 mr-2" />
+                  Python
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setSqlDialogOpen(true)}
+                  className="h-9 px-3 rounded-full border border-[#5a4318]/70 bg-black/30 text-[#38bdf8] hover:bg-[#38bdf8]/10"
+                >
+                  <TerminalSquare className="h-4 w-4 mr-2" />
+                  SQL
+                </Button>
               </div>
             </div>
 
@@ -578,6 +908,14 @@ export function ProjectLayout() {
                     <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">
                       Tables
                     </div>
+                    <div className="mb-3">
+                      <Input
+                        value={tableSearch}
+                        onChange={(e) => setTableSearch(e.target.value)}
+                        placeholder="Search tables..."
+                        className="h-9 bg-black/40 border-gray-800 text-xs text-zinc-200 placeholder:text-neutral-500"
+                      />
+                    </div>
                     {tablesLoading && (
                       <div className="text-xs text-neutral-500">
                         Loading tables...
@@ -588,8 +926,15 @@ export function ProjectLayout() {
                         No tables found.
                       </div>
                     )}
+                    {!tablesLoading &&
+                      tableNames?.length &&
+                      !filteredTables.length && (
+                        <div className="text-xs text-neutral-500">
+                          No tables match your search.
+                        </div>
+                      )}
                     <div className="flex flex-col gap-2">
-                      {tableNames?.map((table) => (
+                      {filteredTables.map((table) => (
                         <button
                           key={table}
                           type="button"
@@ -639,14 +984,14 @@ export function ProjectLayout() {
                       {!tableRowsLoading &&
                         tableRows &&
                         tableRows.length > 0 && (
-                          <div className="rounded-xl bg-gradient-to-b from-[#f3f4f6]/12 via-[#d1d5db]/10 to-[#9ca3af]/10 p-2">
+                          <div className="rounded-md border border-white/10 bg-black/20 p-2">
                             <Table className="text-xs text-zinc-200">
                               <TableHeader>
                                 <TableRow className="border-white/10">
                                   {Object.keys(tableRows[0]).map((column) => (
                                     <TableHead
                                       key={column}
-                                      className="text-[#d4af37] font-bold bg-[#3a2a12]/60 border-b border-[#d4af37]/30"
+                                      className="text-zinc-200 font-semibold bg-black/40 border-b border-white/10 uppercase tracking-wider text-[11px]"
                                     >
                                       {column}
                                     </TableHead>
@@ -657,7 +1002,7 @@ export function ProjectLayout() {
                                 {tableRows.map((row, rowIndex) => (
                                   <TableRow
                                     key={rowIndex}
-                                    className="border-white/5"
+                                    className="border-white/5 even:bg-white/5"
                                   >
                                     {Object.values(row).map(
                                       (value, cellIndex) => (
@@ -749,6 +1094,147 @@ export function ProjectLayout() {
           )}
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      <Dialog open={collaborateOpen} onOpenChange={setCollaborateOpen}>
+        <DialogContent className="glass-panel border border-white/10 text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold flex items-center gap-2">
+              <Users className="h-4 w-4 text-neon-green" />
+              Add collaborator
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="collaborator">Email or username</Label>
+              <Input
+                id="collaborator"
+                value={collaborateInput}
+                onChange={(e) => setCollaborateInput(e.target.value)}
+                placeholder="name@example.com"
+                className="bg-black/40 border-white/10 text-white"
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={handleAddCollaborator}
+                disabled={collaborateBusy || !collaborateInput.trim()}
+                className="h-10 px-4 rounded-lg neon-btn"
+              >
+                {collaborateBusy ? "Adding..." : "Add"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pythonDialogOpen} onOpenChange={setPythonDialogOpen}>
+        <DialogContent className="glass-panel border border-white/10 text-white sm:max-w-6xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold flex items-center gap-2">
+              <Code2 className="h-4 w-4 text-[#facc15]" />
+              Python workspace
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="text-xs uppercase tracking-widest text-neutral-500">
+                Code
+              </div>
+              <Textarea
+                value={pythonCode}
+                onChange={(e) => setPythonCode(e.target.value)}
+                className="min-h-[360px] bg-black/50 border-white/10 text-zinc-100 font-mono text-xs"
+              />
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleRunPython}
+                  disabled={pythonRunning || !pythonCode.trim()}
+                  className="h-10 px-4 rounded-lg bg-[#facc15]/20 border border-[#facc15]/40 text-[#facc15] hover:bg-[#facc15]/30"
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  {pythonRunning ? "Running..." : "Run"}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs uppercase tracking-widest text-neutral-500">
+                Output
+              </div>
+              <div className="min-h-[360px] max-h-[520px] overflow-auto bg-black/40 border border-white/10 rounded-md p-3">
+                {pythonRunError && (
+                  <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-md p-3 mb-3">
+                    {pythonRunError}
+                  </div>
+                )}
+                {renderPythonOutput()}
+                {!pythonRunError && !pythonOutput && (
+                  <div className="text-xs text-neutral-500">
+                    Run the script to see output.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={sqlDialogOpen} onOpenChange={setSqlDialogOpen}>
+        <DialogContent className="glass-panel border border-white/10 text-white sm:max-w-6xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold flex items-center gap-2">
+              <TerminalSquare className="h-4 w-4 text-[#38bdf8]" />
+              SQL workspace
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="text-xs uppercase tracking-widest text-neutral-500">
+                Query
+              </div>
+              <Textarea
+                value={sqlQuery}
+                onChange={(e) => setSqlQuery(e.target.value)}
+                className="min-h-[240px] bg-black/50 border-white/10 text-zinc-100 font-mono text-xs"
+              />
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleRunSql}
+                  disabled={sqlRunning || !sqlQuery.trim()}
+                  className="h-10 px-4 rounded-lg bg-[#38bdf8]/20 border border-[#38bdf8]/40 text-[#38bdf8] hover:bg-[#38bdf8]/30"
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  {sqlRunning ? "Running..." : "Run"}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs uppercase tracking-widest text-neutral-500">
+                Output
+              </div>
+              <div className="min-h-[240px] max-h-[520px] overflow-auto bg-black/40 border border-white/10 rounded-md p-3">
+                {sqlRunError && (
+                  <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-md p-3 mb-3">
+                    {sqlRunError}
+                  </div>
+                )}
+                {sqlOutput && (
+                  <div className="space-y-3">
+                    <div className="text-xs text-neutral-400">
+                      {sqlOutput.rowCount} rows
+                    </div>
+                    {renderRowsTable(sqlOutput.rows, sqlOutput.fields)}
+                  </div>
+                )}
+                {!sqlRunError && !sqlOutput && (
+                  <div className="text-xs text-neutral-500">
+                    Run a query to see results.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={quickAskOpen} onOpenChange={setQuickAskOpen}>
         <DialogContent className="bg-[#0b0b0b] border-gray-800 text-white sm:max-w-lg shadow-2xl p-0 overflow-hidden rounded-2xl">
