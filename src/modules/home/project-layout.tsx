@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { ChatInterface } from "./chat-interface";
 import { SmartFillDialog } from "./smart-fill-dialog";
 import { AprioriDialog } from "./apriori-dialog";
+import { HistoryPanel } from "./history-panel";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -16,6 +17,7 @@ import {
   TerminalSquare,
   Play,
   GitBranch,
+  History,
 } from "lucide-react";
 import {
   Dialog,
@@ -262,6 +264,7 @@ export function ProjectLayout() {
   const [collaborateOpen, setCollaborateOpen] = useState(false);
   const [smartFillOpen, setSmartFillOpen] = useState(false);
   const [aprioriOpen, setAprioriOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [collaborateInput, setCollaborateInput] = useState("");
   const [collaborateBusy, setCollaborateBusy] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -1142,6 +1145,14 @@ export function ProjectLayout() {
                   Apriori
                 </Button>
                 <Button
+                  size="sm"
+                  onClick={() => setHistoryOpen(true)}
+                  className="h-7 text-xs bg-black/30 border border-gray-700 text-zinc-300 hover:border-amber-400/40 hover:text-amber-300 gap-1"
+                >
+                  <History className="h-3 w-3" />
+                  History
+                </Button>
+                <Button
                   type="button"
                   size="sm"
                   onClick={handleRunMlImputation}
@@ -1615,6 +1626,21 @@ export function ProjectLayout() {
           columns={tableRows.length > 0 ? Object.keys(tableRows[0] as object) : []}
         />
       )}
+
+      <HistoryPanel
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        projectId={projectId ?? ""}
+        onLoadQuery={(query, type) => {
+          if (type === "python") {
+            setPythonCode(query);
+            setPythonDialogOpen(true);
+          } else {
+            setSqlQuery(query);
+            setSqlDialogOpen(true);
+          }
+        }}
+      />
 
       <Dialog open={quickAskOpen} onOpenChange={setQuickAskOpen}>
         <DialogContent className="bg-[#0b0b0b] border-gray-800 text-white sm:max-w-lg shadow-2xl p-0 overflow-hidden rounded-2xl">
