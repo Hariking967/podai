@@ -6,6 +6,7 @@ import { ChatInterface } from "./chat-interface";
 import { SmartFillDialog } from "./smart-fill-dialog";
 import { AprioriDialog } from "./apriori-dialog";
 import { HistoryPanel } from "./history-panel";
+import { DestructiveGuardDialog } from "./destructive-guard-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -265,6 +266,10 @@ export function ProjectLayout() {
   const [smartFillOpen, setSmartFillOpen] = useState(false);
   const [aprioriOpen, setAprioriOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [destructiveGuardOpen, setDestructiveGuardOpen] = useState(false);
+  const [pendingDestructiveMessage, setPendingDestructiveMessage] = useState("");
+  const [detectedDestructivePattern, setDetectedDestructivePattern] = useState("");
+  const pendingDestructiveSendRef = useRef<(() => void) | null>(null);
   const [collaborateInput, setCollaborateInput] = useState("");
   const [collaborateBusy, setCollaborateBusy] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -535,6 +540,15 @@ export function ProjectLayout() {
 
   const handleSendMessage = (text: string) => {
     if (!projectId) return;
+    const destructiveMatch = detectDestructiveIntent(text);
+    if (destructiveMatch) {
+      setPendingDestructiveMessage(text);
+      setDetectedDestructivePattern(destructiveMatch);
+      pendingDestructiveSendRef.current = () =>
+        sendMessage.mutate({ projectId, message: text });
+      setDestructiveGuardOpen(true);
+      return;
+    }
     sendMessage.mutate({
       projectId,
       message: text,
@@ -751,6 +765,22 @@ export function ProjectLayout() {
     ...(optimisticUserMessage ? [optimisticUserMessage] : []),
     ...(streamingAssistantMessage ? [streamingAssistantMessage] : []),
   ];
+
+  const DESTRUCTIVE_PATTERNS = [
+    { pattern: /\bdrop\s+(table|database|schema|index)\b/i, label: "DROP" },
+    { pattern: /\bdelete\s+from\b/i, label: "DELETE FROM" },
+    { pattern: /\btruncate\b/i, label: "TRUNCATE" },
+    { pattern: /delete\s+all\s+rows/i, label: "DELETE ALL ROWS" },
+    { pattern: /\bclear\s+(the\s+)?(entire|whole|all)\s+(table|database|data)\b/i, label: "CLEAR TABLE" },
+    { pattern: /\bdrop\s+all\b/i, label: "DROP ALL" },
+  ] as const;
+
+  const detectDestructiveIntent = (msg: string): string | null => {
+    for (const { pattern, label } of DESTRUCTIVE_PATTERNS) {
+      if (pattern.test(msg)) return label;
+    }
+    return null;
+  };
 
   const filteredTables = (tableNames ?? []).filter((table) =>
     table.toLowerCase().includes(tableSearch.trim().toLowerCase()),
@@ -1639,6 +1669,18 @@ export function ProjectLayout() {
             setSqlQuery(query);
             setSqlDialogOpen(true);
           }
+        }}
+      />
+
+      <DestructiveGuardDialog
+        open={destructiveGuardOpen}
+        onOpenChange={setDestructiveGuardOpen}
+        detectedPattern={detectedDestructivePattern}
+        message={pendingDestructiveMessage}
+        onConfirm={() => pendingDestructiveSendRef.current?.()}
+        onCancel={() => {
+          setPendingDestructiveMessage("");
+          pendingDestructiveSendRef.current = null;
         }}
       />
 
