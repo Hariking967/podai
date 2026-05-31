@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { ChatInterface } from "./chat-interface";
+import { SmartFillDialog } from "./smart-fill-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -257,6 +258,7 @@ export function ProjectLayout() {
   const [sqlRunning, setSqlRunning] = useState(false);
   const [mlRunning, setMlRunning] = useState(false);
   const [collaborateOpen, setCollaborateOpen] = useState(false);
+  const [smartFillOpen, setSmartFillOpen] = useState(false);
   const [collaborateInput, setCollaborateInput] = useState("");
   const [collaborateBusy, setCollaborateBusy] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -1111,6 +1113,20 @@ export function ProjectLayout() {
                 <Button
                   type="button"
                   size="sm"
+                  onClick={() => setSmartFillOpen(true)}
+                  disabled={
+                    !selectedTable ||
+                    !tableRows ||
+                    tableRows.length === 0
+                  }
+                  className="h-9 px-3 rounded-full border border-neon-green/50 bg-neon-green/10 text-neon-green hover:bg-neon-green/20 disabled:opacity-40"
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Smart Fill
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
                   onClick={handleRunMlImputation}
                   disabled={
                     mlRunning ||
@@ -1561,6 +1577,17 @@ export function ProjectLayout() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {selectedTable && tableRows && tableRows.length > 0 && (
+        <SmartFillDialog
+          open={smartFillOpen}
+          onOpenChange={setSmartFillOpen}
+          projectId={projectId ?? ""}
+          rows={tableRows as Record<string, unknown>[]}
+          columns={tableRows.length > 0 ? Object.keys(tableRows[0] as object) : []}
+          tableName={selectedTable}
+        />
+      )}
 
       <Dialog open={quickAskOpen} onOpenChange={setQuickAskOpen}>
         <DialogContent className="bg-[#0b0b0b] border-gray-800 text-white sm:max-w-lg shadow-2xl p-0 overflow-hidden rounded-2xl">
