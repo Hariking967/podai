@@ -112,7 +112,7 @@ export async function POST(req: Request) {
     const historyRows = await db.query.messages.findMany({
       where: eq(messages.chatId, chat.id),
       orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-      limit: 8,
+      limit: 4,
     });
     console.log(`${LOG_PREFIX} History rows fetched: ${historyRows.length}`);
 

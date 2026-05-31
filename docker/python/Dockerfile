@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-RUN pip install --no-cache-dir pandas numpy matplotlib seaborn plotly psycopg2-binary
+RUN pip install --no-cache-dir pandas numpy matplotlib seaborn plotly scikit-learn psycopg2-binary
 
 WORKDIR /work
 COPY runner.py /runner.py

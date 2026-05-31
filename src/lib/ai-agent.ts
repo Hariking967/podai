@@ -4,9 +4,11 @@ import type {
   ChatCompletionTool,
   ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions";
+import { createHash } from "crypto";
 import { openaiClient } from "./openai-client";
 import { runPythonCode, getExecutionEnvironment } from "./python-adapter";
 import { runSqlOnNeon } from "./neon-sql";
+import { cacheGet, cacheSet } from "./cache";
 
 const LOG_PREFIX = "[AI-Agent]";
 
@@ -667,9 +669,16 @@ The result can include:
 - Any custom key-value pairs
 
 ## AVAILABLE PYTHON PACKAGES:
-- pandas, numpy, matplotlib, seaborn, plotly
+- pandas, numpy, matplotlib, seaborn, plotly, scikit-learn
 - base64, BytesIO (pre-imported in environment)
-- Helper utilities from \`helpers\` module
+- Helper utilities from \`helpers\` module including \`fill_missing_with_sklearn\`
+
+## MISSING DATA + ML IMPUTATION:
+When user asks to fill missing values, clean NaNs, or impute data:
+- Prefer sklearn imputers (KNNImputer or SimpleImputer).
+- You can call helper: \`fill_missing_with_sklearn(rows, strategy='knn')\`.
+- Return rows + fields + metrics so frontend can show cleaned table.
+- Explain briefly what strategy was used and how many values were filled.
 
 ## Example complete workflow:
 1. Fetch data with run_sql
@@ -826,6 +835,20 @@ const TOOLS: ChatCompletionTool[] = [
   RUN_PYTHON_TOOL,
 ];
 
+const FAST_MODEL = process.env.OPENAI_FAST_MODEL ?? "gpt-4.1-nano";
+const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+
+const buildFastSystemPrompt = () => `
+You are XBase AI.
+
+Rules:
+- Use run_sql for all SQL/database actions.
+- Use run_python for visualization/analysis.
+- Never return Python code as plain text.
+- Always use double-quoted SQL identifiers like "Table" and "Column".
+- Keep answers concise and action-oriented.
+`;
+
 export const runAgent = async ({
   message,
   neonApiKey,
@@ -851,10 +874,47 @@ export const runAgent = async ({
     };
   }
 
+  const isDatabaseOperation =
+    /\b(create\s+(table|database|index)|insert\s+into|update\s+\w+\s+set|delete\s+from|alter\s+table|drop\s+table)\b/i.test(
+      message,
+    );
+  const needsVisualization =
+    !isDatabaseOperation &&
+    (/\b(chart|plot|visuali[sz]e|graph|pie|bar|line|scatter|histogram|heatmap|distribution)\b/i.test(
+      message,
+    ) ||
+      /\b(matplotlib|seaborn|plotly|figure|diagram|image)\b/i.test(message) ||
+      /\b(show|display|draw)\b/i.test(message));
+  const isComplexRequest =
+    /\b(join|window\s+function|recursive|cte|correlation|forecast|segmentation|cohort|timeseries|regression|percentile|rank\()\b/i.test(
+      message,
+    ) || message.length > 280;
+
+  const useFastPath = !needsVisualization && !isComplexRequest;
+  const selectedModel = useFastPath ? FAST_MODEL : DEFAULT_MODEL;
+  const responseTokenBudget = useFastPath ? 420 : 900;
+  const systemPrompt = useFastPath
+    ? buildFastSystemPrompt()
+    : buildSystemPrompt();
+
+  const createChatCompletion = (
+    messages: ChatCompletionMessageParam[],
+    toolChoice: "auto" | "required" = "auto",
+  ) =>
+    openaiClient.chat.completions.create({
+      model: selectedModel,
+      messages,
+      tools: TOOLS,
+      tool_choice: toolChoice,
+      temperature: 0.2,
+      max_tokens: responseTokenBudget,
+      parallel_tool_calls: true,
+    });
+
   const input: ChatCompletionMessageParam[] = [
     {
       role: "system",
-      content: buildSystemPrompt(),
+      content: systemPrompt,
     },
     ...history.map((entry) => ({
       role: entry.role,
@@ -865,23 +925,8 @@ export const runAgent = async ({
 
   console.log(`${LOG_PREFIX} Calling OpenAI with ${input.length} messages`);
 
-  // Check if this is a database operation (not visualization)
-  const isDatabaseOperation =
-    /\b(create\s+(table|database|index)|insert\s+into|update\s+\w+\s+set|delete\s+from|alter\s+table|drop\s+table)\b/i.test(
-      message,
-    );
-
-  // Only trigger visualization mode if NOT a database operation
-  const needsVisualization =
-    !isDatabaseOperation &&
-    (/\b(chart|plot|visuali[sz]e|graph|pie|bar|line|scatter|histogram|heatmap|distribution)\b/i.test(
-      message,
-    ) ||
-      /\b(matplotlib|seaborn|plotly|figure|diagram|image)\b/i.test(message) ||
-      /\b(show|display|draw)\b/i.test(message));
-
   console.log(
-    `${LOG_PREFIX} isDatabaseOperation: ${isDatabaseOperation}, needsVisualization: ${needsVisualization}`,
+    `${LOG_PREFIX} isDatabaseOperation: ${isDatabaseOperation}, needsVisualization: ${needsVisualization}, useFastPath: ${useFastPath}, model: ${selectedModel}`,
   );
 
   let forcedToolRetry = false;
@@ -891,12 +936,10 @@ export const runAgent = async ({
 
   let response;
   try {
-    response = await openaiClient.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: input,
-      tools: TOOLS,
-      tool_choice: needsVisualization ? "required" : "auto",
-    });
+    response = await createChatCompletion(
+      input,
+      needsVisualization ? "required" : "auto",
+    );
   } catch (error) {
     console.error(`${LOG_PREFIX} OpenAI API call failed:`, error);
     const errorMessage =
@@ -931,9 +974,8 @@ export const runAgent = async ({
         );
         forcedToolRetry = true;
         try {
-          response = await openaiClient.chat.completions.create({
-            model: "gpt-4.1-mini",
-            messages: [
+          response = await createChatCompletion(
+            [
               ...conversation,
               {
                 role: "system",
@@ -941,9 +983,8 @@ export const runAgent = async ({
                   "CRITICAL: You must call tools now. For visualization requests, first call run_sql to fetch the needed rows, then call run_python to render a matplotlib chart and return result.image_base64 and result.image_mime. Do not answer without using tools. DO NOT return Python code as text.",
               },
             ],
-            tools: TOOLS,
-            tool_choice: "required",
-          });
+            "required",
+          );
           continue;
         } catch (error) {
           console.error(`${LOG_PREFIX} OpenAI retry failed:`, error);
@@ -962,9 +1003,8 @@ export const runAgent = async ({
         );
         secondRetry = true;
         try {
-          response = await openaiClient.chat.completions.create({
-            model: "gpt-4.1-mini",
-            messages: [
+          response = await createChatCompletion(
+            [
               ...conversation,
               {
                 role: "user",
@@ -972,9 +1012,8 @@ export const runAgent = async ({
                   "Execute the visualization using run_python tool RIGHT NOW. Do not return code as text. Call the run_python tool with the matplotlib code.",
               },
             ],
-            tools: TOOLS,
-            tool_choice: "required",
-          });
+            "required",
+          );
           continue;
         } catch (error) {
           console.error(`${LOG_PREFIX} OpenAI second retry failed:`, error);
@@ -1016,15 +1055,27 @@ export const runAgent = async ({
           table_name?: string;
           include_relationships?: boolean;
         };
+        const schemaCacheKey = [
+          "schema",
+          createHash("sha1").update(neonApiKey).digest("hex"),
+          schemaArgs.table_name || "all",
+          schemaArgs.include_relationships === false ? "no-rel" : "rel",
+        ].join(":");
         console.log(
           `${LOG_PREFIX} [get_schema] Table: ${schemaArgs.table_name || "ALL"}`,
         );
 
         try {
-          let schemaInfo: any = {};
+          const cachedSchema =
+            await cacheGet<AgentResult["toolOutput"]>(schemaCacheKey);
+          if (cachedSchema) {
+            console.log(`${LOG_PREFIX} [get_schema] Cache hit`);
+            toolOutput = cachedSchema;
+          } else {
+            let schemaInfo: any = {};
 
-          // Get list of tables
-          const tablesQuery = `
+            // Get list of tables
+            const tablesQuery = `
             SELECT table_name, table_type
             FROM information_schema.tables
             WHERE table_schema = 'public'
@@ -1032,16 +1083,16 @@ export const runAgent = async ({
             ORDER BY table_name;
           `;
 
-          const tablesResult = await runSqlOnNeon({
-            connectionString: neonApiKey,
-            query: tablesQuery,
-            params: [],
-          });
+            const tablesResult = await runSqlOnNeon({
+              connectionString: neonApiKey,
+              query: tablesQuery,
+              params: [],
+            });
 
-          schemaInfo.tables = tablesResult.rows;
+            schemaInfo.tables = tablesResult.rows;
 
-          // Get columns for each table
-          const columnsQuery = `
+            // Get columns for each table
+            const columnsQuery = `
             SELECT 
               table_name,
               column_name,
@@ -1056,16 +1107,16 @@ export const runAgent = async ({
             ORDER BY table_name, ordinal_position;
           `;
 
-          const columnsResult = await runSqlOnNeon({
-            connectionString: neonApiKey,
-            query: columnsQuery,
-            params: [],
-          });
+            const columnsResult = await runSqlOnNeon({
+              connectionString: neonApiKey,
+              query: columnsQuery,
+              params: [],
+            });
 
-          schemaInfo.columns = columnsResult.rows;
+            schemaInfo.columns = columnsResult.rows;
 
-          // Get primary keys
-          const pkQuery = `
+            // Get primary keys
+            const pkQuery = `
             SELECT
               tc.table_name,
               kcu.column_name,
@@ -1079,17 +1130,17 @@ export const runAgent = async ({
             ORDER BY tc.table_name, kcu.ordinal_position;
           `;
 
-          const pkResult = await runSqlOnNeon({
-            connectionString: neonApiKey,
-            query: pkQuery,
-            params: [],
-          });
+            const pkResult = await runSqlOnNeon({
+              connectionString: neonApiKey,
+              query: pkQuery,
+              params: [],
+            });
 
-          schemaInfo.primary_keys = pkResult.rows;
+            schemaInfo.primary_keys = pkResult.rows;
 
-          // Get foreign keys if requested
-          if (schemaArgs.include_relationships !== false) {
-            const fkQuery = `
+            // Get foreign keys if requested
+            if (schemaArgs.include_relationships !== false) {
+              const fkQuery = `
               SELECT
                 tc.table_name,
                 kcu.column_name,
@@ -1107,36 +1158,39 @@ export const runAgent = async ({
               ORDER BY tc.table_name, kcu.column_name;
             `;
 
-            const fkResult = await runSqlOnNeon({
-              connectionString: neonApiKey,
-              query: fkQuery,
-              params: [],
-            });
+              const fkResult = await runSqlOnNeon({
+                connectionString: neonApiKey,
+                query: fkQuery,
+                params: [],
+              });
 
-            schemaInfo.foreign_keys = fkResult.rows;
+              schemaInfo.foreign_keys = fkResult.rows;
+            }
+
+            // Format summary
+            const summary = {
+              total_tables: tablesResult.rowCount,
+              tables_detail: schemaArgs.table_name
+                ? `Schema for table: ${schemaArgs.table_name}`
+                : `All ${tablesResult.rowCount} tables in database`,
+              hint: "Use this schema information to write accurate queries with correct table and column names. Always use double-quoted identifiers.",
+            };
+
+            console.log(
+              `${LOG_PREFIX} [get_schema] SUCCESS - Found ${tablesResult.rowCount} table(s)`,
+            );
+
+            toolOutput = {
+              prints: `Schema retrieved for ${schemaArgs.table_name || "all tables"}`,
+              result: {
+                summary,
+                schema: schemaInfo,
+              },
+              error: null,
+            };
+
+            await cacheSet(schemaCacheKey, toolOutput, 300);
           }
-
-          // Format summary
-          const summary = {
-            total_tables: tablesResult.rowCount,
-            tables_detail: schemaArgs.table_name
-              ? `Schema for table: ${schemaArgs.table_name}`
-              : `All ${tablesResult.rowCount} tables in database`,
-            hint: "Use this schema information to write accurate queries with correct table and column names. Always use double-quoted identifiers.",
-          };
-
-          console.log(
-            `${LOG_PREFIX} [get_schema] SUCCESS - Found ${tablesResult.rowCount} table(s)`,
-          );
-
-          toolOutput = {
-            prints: `Schema retrieved for ${schemaArgs.table_name || "all tables"}`,
-            result: {
-              summary,
-              schema: schemaInfo,
-            },
-            error: null,
-          };
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : "Schema retrieval failed.";
@@ -1256,9 +1310,8 @@ export const runAgent = async ({
         `${LOG_PREFIX} Visualization requested: SQL was called but Python was NOT. Forcing run_python execution.`,
       );
       try {
-        response = await openaiClient.chat.completions.create({
-          model: "gpt-4.1-mini",
-          messages: [
+        response = await createChatCompletion(
+          [
             ...conversation,
             {
               role: "system",
@@ -1266,9 +1319,8 @@ export const runAgent = async ({
                 "CRITICAL: You fetched data but DID NOT create the visualization! You MUST now call run_python tool to generate the chart image. Convert the SQL result to CSV format and pass it to run_python with matplotlib code that creates the requested visualization. DO THIS NOW.",
             },
           ],
-          tools: TOOLS,
-          tool_choice: "required",
-        });
+          "required",
+        );
       } catch (error) {
         console.error(
           `${LOG_PREFIX} OpenAI visualization retry failed:`,
@@ -1287,11 +1339,7 @@ export const runAgent = async ({
         `${LOG_PREFIX} Visualization complete: Both SQL and Python executed successfully. Getting final response.`,
       );
       try {
-        response = await openaiClient.chat.completions.create({
-          model: "gpt-4.1-mini",
-          messages: conversation,
-          tools: TOOLS,
-        });
+        response = await createChatCompletion(conversation);
 
         // Check if there are no more tool calls - if so, we're done
         const finalToolCalls =
@@ -1321,11 +1369,7 @@ export const runAgent = async ({
       }
     } else {
       try {
-        response = await openaiClient.chat.completions.create({
-          model: "gpt-4.1-mini",
-          messages: conversation,
-          tools: TOOLS,
-        });
+        response = await createChatCompletion(conversation);
       } catch (error) {
         console.error(`${LOG_PREFIX} OpenAI follow-up call failed:`, error);
         // If we already have toolOutput, return it with a success message

@@ -8,6 +8,113 @@ from io import BytesIO
 import json
 
 
+def fill_missing_with_sklearn(
+    rows,
+    strategy='knn',
+    n_neighbors=5,
+    categorical_fill='most_frequent',
+):
+    """
+    Fill missing values in tabular rows using sklearn imputers.
+
+    Args:
+        rows: list of dict-like records
+        strategy: 'knn' or 'simple'
+        n_neighbors: neighbors for KNNImputer
+        categorical_fill: strategy for categorical columns (SimpleImputer)
+
+    Returns:
+        dict containing rows, fields, and metrics
+    """
+    import pandas as pd
+    from sklearn.impute import KNNImputer, SimpleImputer
+
+    if rows is None:
+        rows = []
+    if not isinstance(rows, list):
+        raise ValueError("rows must be a list of records")
+
+    if len(rows) == 0:
+        return {
+            'rows': [],
+            'fields': [],
+            'metrics': {
+                'rows_total': 0,
+                'missing_before': 0,
+                'missing_after': 0,
+                'filled_values': 0,
+                'strategy': strategy,
+            },
+            'summary': 'No input rows provided.',
+        }
+
+    df = pd.DataFrame(rows)
+    fields = df.columns.tolist()
+
+    missing_before = int(df.isna().sum().sum())
+    if missing_before == 0:
+        return {
+            'rows': df.to_dict(orient='records'),
+            'fields': fields,
+            'metrics': {
+                'rows_total': int(len(df)),
+                'missing_before': 0,
+                'missing_after': 0,
+                'filled_values': 0,
+                'strategy': strategy,
+            },
+            'summary': 'No missing values found.',
+        }
+
+    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+    categorical_cols = [col for col in fields if col not in numeric_cols]
+
+    imputed = df.copy()
+
+    if numeric_cols:
+        if strategy == 'knn' and len(numeric_cols) > 0:
+            knn_imputer = KNNImputer(n_neighbors=max(1, int(n_neighbors)))
+            imputed[numeric_cols] = knn_imputer.fit_transform(imputed[numeric_cols])
+        else:
+            num_imputer = SimpleImputer(strategy='median')
+            imputed[numeric_cols] = num_imputer.fit_transform(imputed[numeric_cols])
+
+    if categorical_cols:
+        cat_strategy = categorical_fill if categorical_fill in ['most_frequent', 'constant'] else 'most_frequent'
+        cat_imputer = SimpleImputer(strategy=cat_strategy, fill_value='unknown')
+        imputed[categorical_cols] = cat_imputer.fit_transform(imputed[categorical_cols])
+
+    missing_after = int(imputed.isna().sum().sum())
+    filled_values = max(0, missing_before - missing_after)
+
+    return {
+        'rows': imputed.to_dict(orient='records'),
+        'fields': fields,
+        'metrics': {
+            'rows_total': int(len(imputed)),
+            'columns_total': int(len(fields)),
+            'numeric_columns': int(len(numeric_cols)),
+            'categorical_columns': int(len(categorical_cols)),
+            'missing_before': missing_before,
+            'missing_after': missing_after,
+            'filled_values': filled_values,
+            'strategy': strategy,
+        },
+        'summary': f'Filled {filled_values} missing values using sklearn {strategy} imputation.',
+    }
+
+
+def fill_missing_df(df, strategy='knn', n_neighbors=5):
+    """Convenience wrapper for DataFrame input."""
+    if df is None:
+        return {'rows': [], 'fields': [], 'metrics': {'rows_total': 0}}
+    return fill_missing_with_sklearn(
+        rows=df.to_dict(orient='records'),
+        strategy=strategy,
+        n_neighbors=n_neighbors,
+    )
+
+
 def fig_to_base64(fig, format='png', dpi=150):
     """
     Convert a matplotlib figure to base64 string.
@@ -120,6 +227,11 @@ def format_table_result(rows, fields=None):
 
 # Example usage templates for AI agent:
 USAGE_EXAMPLES = """
+# Example 0: Fill missing values with sklearn
+from helpers import fill_missing_with_sklearn
+
+result = fill_missing_with_sklearn(rows, strategy='knn', n_neighbors=5)
+
 # Example 1: Create a bar chart with data
 import matplotlib.pyplot as plt
 from helpers import create_visualization_result

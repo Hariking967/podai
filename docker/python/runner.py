@@ -9,6 +9,12 @@ from io import StringIO, BytesIO
 # Make helpers module available
 sys.path.insert(0, '/')
 
+try:
+    from helpers import fill_missing_df, fill_missing_with_sklearn
+except Exception:
+    fill_missing_df = None
+    fill_missing_with_sklearn = None
+
 
 def process_result(result):
     """
@@ -90,6 +96,8 @@ def main():
         "base64": base64,
         "BytesIO": BytesIO,
         "input_data": input_data,
+        "fill_missing_df": fill_missing_df,
+        "fill_missing_with_sklearn": fill_missing_with_sklearn,
     }
 
     try:

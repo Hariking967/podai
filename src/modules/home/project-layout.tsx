@@ -75,6 +75,16 @@ interface ChatResponse {
   messages: ChatListItem[];
 }
 
+interface SendMessageResponse {
+  userMessage: { role: "user"; content: string; createdAt: string };
+  aiMessage: {
+    role: "assistant";
+    content: string;
+    createdAt: string;
+    data_location?: ChatListItem["data_location"];
+  };
+}
+
 interface AgentListResponse {
   activeChatId: string | null;
   agents: Array<{ id: string; name: string }>;
@@ -114,6 +124,102 @@ const postJson = async <T,>(url: string, body: unknown): Promise<T> => {
   return data as T;
 };
 
+const postSseJson = async <T,>(
+  url: string,
+  body: unknown,
+  handlers: {
+    onDelta?: (text: string) => void;
+    onStatus?: (message: string) => void;
+  } = {},
+): Promise<T> => {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null);
+    throw new Error(errorPayload?.message || "Request failed");
+  }
+
+  if (!response.body) {
+    throw new Error("Missing response stream");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let completePayload: T | null = null;
+
+  const processEvent = (rawEvent: string) => {
+    const lines = rawEvent.split("\n");
+    let eventName = "message";
+    const dataParts: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataParts.push(line.slice(5).trim());
+      }
+    }
+
+    const rawData = dataParts.join("\n");
+    if (!rawData) return;
+
+    const parsed = JSON.parse(rawData) as Record<string, unknown>;
+
+    if (eventName === "delta") {
+      const text = typeof parsed.text === "string" ? parsed.text : "";
+      if (text) handlers.onDelta?.(text);
+      return;
+    }
+
+    if (eventName === "status") {
+      const message =
+        typeof parsed.message === "string" ? parsed.message : "Working...";
+      handlers.onStatus?.(message);
+      return;
+    }
+
+    if (eventName === "error") {
+      const message =
+        typeof parsed.message === "string"
+          ? parsed.message
+          : "Streaming request failed";
+      throw new Error(message);
+    }
+
+    if (eventName === "complete") {
+      completePayload = parsed as T;
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+
+    for (const evt of events) {
+      if (!evt.trim()) continue;
+      processEvent(evt);
+    }
+  }
+
+  if (!completePayload) {
+    throw new Error("Stream ended before completion payload");
+  }
+
+  return completePayload;
+};
+
 export function ProjectLayout() {
   const params = useParams();
   const currentProjectName = decodeURIComponent(
@@ -124,6 +230,8 @@ export function ProjectLayout() {
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [optimisticUserMessage, setOptimisticUserMessage] =
+    useState<ChatListItem | null>(null);
+  const [streamingAssistantMessage, setStreamingAssistantMessage] =
     useState<ChatListItem | null>(null);
   const [quickAskOpen, setQuickAskOpen] = useState(false);
   const [quickAskText, setQuickAskText] = useState("");
@@ -144,8 +252,10 @@ export function ProjectLayout() {
   const [sqlOutput, setSqlOutput] = useState<SqlExecutionResult | null>(null);
   const [pythonRunError, setPythonRunError] = useState<string | null>(null);
   const [sqlRunError, setSqlRunError] = useState<string | null>(null);
+  const [mlRunError, setMlRunError] = useState<string | null>(null);
   const [pythonRunning, setPythonRunning] = useState(false);
   const [sqlRunning, setSqlRunning] = useState(false);
+  const [mlRunning, setMlRunning] = useState(false);
   const [collaborateOpen, setCollaborateOpen] = useState(false);
   const [collaborateInput, setCollaborateInput] = useState("");
   const [collaborateBusy, setCollaborateBusy] = useState(false);
@@ -286,31 +396,48 @@ export function ProjectLayout() {
 
   const sendMessage = useMutation({
     mutationFn: (payload: { projectId: string; message: string }) =>
-      postJson<{
-        userMessage: { role: "user"; content: string; createdAt: string };
-        aiMessage: {
-          role: "assistant";
-          content: string;
-          createdAt: string;
-          data_location?: ChatListItem["data_location"];
-        };
-      }>("/api/chat/send-message", payload),
+      postSseJson<SendMessageResponse>(
+        "/api/chat/send-message-stream",
+        payload,
+        {
+          onStatus: (statusText) => {
+            setStreamingAssistantMessage((current) => {
+              if (current) return current;
+              return {
+                role: "assistant",
+                content: statusText,
+                createdAt: new Date().toISOString(),
+              };
+            });
+          },
+          onDelta: (delta) => {
+            setStreamingAssistantMessage((current) => ({
+              role: "assistant",
+              content: `${current?.content ?? ""}${delta}`,
+              createdAt: current?.createdAt ?? new Date().toISOString(),
+            }));
+          },
+        },
+      ),
     onMutate: (payload) => {
       setOptimisticUserMessage({
         role: "user",
         content: payload.message,
         createdAt: new Date().toISOString(),
       });
+      setStreamingAssistantMessage(null);
     },
     onSuccess: (data) => {
       // Keep optimistic message until the query updates
       refetchChat().then(() => {
         setOptimisticUserMessage(null);
+        setStreamingAssistantMessage(null);
       });
       queryClient.invalidateQueries({ queryKey: ["chat", projectId] });
     },
     onError: (err) => {
       setOptimisticUserMessage(null);
+      setStreamingAssistantMessage(null);
       toast.error(
         err instanceof Error ? err.message : "Failed to send message",
       );
@@ -504,6 +631,46 @@ export function ProjectLayout() {
     }
   };
 
+  const handleRunMlImputation = async () => {
+    if (!projectId || !selectedTable) {
+      toast.error("Select a table first.");
+      return;
+    }
+    if (!tableRows || tableRows.length === 0) {
+      toast.error("Load table rows first.");
+      return;
+    }
+
+    setMlRunning(true);
+    setMlRunError(null);
+    setPythonRunError(null);
+    setPythonOutput(null);
+
+    const mlCode = `from helpers import fill_missing_with_sklearn\n\nrows = df.to_dict(orient='records') if df is not None else []\nresult = fill_missing_with_sklearn(rows, strategy='knn', n_neighbors=5)\nresult['table_name'] = ${JSON.stringify(selectedTable)}\nresult['task'] = 'missing_value_imputation'`;
+
+    try {
+      const result = await postJson<PythonExecutionResult>(
+        "/api/python/execute",
+        {
+          projectId,
+          code: mlCode,
+          inputData: tableRows,
+          timeoutMs: 30000,
+        },
+      );
+      setPythonOutput(result);
+      setPythonDialogOpen(true);
+      toast.success("ML imputation completed");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "ML imputation failed";
+      setMlRunError(message);
+      toast.error(message);
+    } finally {
+      setMlRunning(false);
+    }
+  };
+
   const handleAddCollaborator = async () => {
     if (!projectId || !userId || !collaborateInput.trim()) return;
     setCollaborateBusy(true);
@@ -571,9 +738,11 @@ export function ProjectLayout() {
     }
   };
 
-  const displayedMessages = optimisticUserMessage
-    ? [...((chatData?.messages as ChatListItem[]) || []), optimisticUserMessage]
-    : (chatData?.messages as ChatListItem[]) || [];
+  const displayedMessages = [
+    ...((chatData?.messages as ChatListItem[]) || []),
+    ...(optimisticUserMessage ? [optimisticUserMessage] : []),
+    ...(streamingAssistantMessage ? [streamingAssistantMessage] : []),
+  ];
 
   const filteredTables = (tableNames ?? []).filter((table) =>
     table.toLowerCase().includes(tableSearch.trim().toLowerCase()),
@@ -942,6 +1111,21 @@ export function ProjectLayout() {
                 <Button
                   type="button"
                   size="sm"
+                  onClick={handleRunMlImputation}
+                  disabled={
+                    mlRunning ||
+                    !selectedTable ||
+                    !tableRows ||
+                    tableRows.length === 0
+                  }
+                  className="h-9 px-3 rounded-full border border-emerald-400/60 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-400/15 disabled:opacity-40"
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  {mlRunning ? "ML Running..." : "ML Fill Missing"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
                   onClick={() => setPythonDialogOpen(true)}
                   className="h-9 px-3 rounded-full border border-[#5a4318]/70 bg-black/30 text-[#facc15] hover:bg-[#facc15]/10"
                 >
@@ -1034,6 +1218,11 @@ export function ProjectLayout() {
 
                 <ResizablePanel defaultSize={76} minSize={45}>
                   <div className="h-full bg-gradient-to-br from-[#e5e7eb]/10 via-[#9ca3af]/10 to-[#6b7280]/10 border border-[#8b8f94]/40 p-2 flex flex-col backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+                    {mlRunError && (
+                      <div className="mb-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                        {mlRunError}
+                      </div>
+                    )}
                     <div className="overflow-auto neon-scrollbar max-h-[calc(100vh-350px)]">
                       {tableRowsLoading && (
                         <div className="text-xs text-neutral-500">
@@ -1087,6 +1276,21 @@ export function ProjectLayout() {
                         )}
                     </div>
                     <div className="mt-4 flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleRunMlImputation}
+                        disabled={
+                          mlRunning ||
+                          !selectedTable ||
+                          !tableRows ||
+                          tableRows.length === 0
+                        }
+                        className="h-9 px-3 mr-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-400/15 disabled:opacity-40"
+                      >
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        {mlRunning ? "Running..." : "ML Fill Missing"}
+                      </Button>
                       <Button
                         type="button"
                         size="icon"

@@ -126,6 +126,12 @@ export function ChatInterface({
     "Neural context warming",
     "Ready for first message",
   ];
+  const suggestedQuestions = [
+    "Show me all tables and a quick schema summary",
+    "Find missing values in the selected table and suggest fixes",
+    "Create a bar chart for top 10 rows by a numeric column",
+    "Give me 3 SQL insights I can run on this database",
+  ];
   const [supabasePayloads, setSupabasePayloads] = useState<
     Record<string, ExecutionPayload>
   >({});
@@ -1055,6 +1061,25 @@ export function ChatInterface({
                   {hint}
                 </motion.span>
               ))}
+            </div>
+
+            <div className="mt-8 w-full max-w-2xl">
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500 text-center mb-3">
+                Suggested Questions
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {suggestedQuestions.map((question) => (
+                  <button
+                    key={question}
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => onSendMessage(question)}
+                    className="text-left rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-200 hover:border-neon-green/40 hover:bg-neon-green/10 transition disabled:opacity-50"
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
             </div>
           </motion.div>
         ) : (
