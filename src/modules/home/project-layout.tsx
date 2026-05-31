@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { ChatInterface } from "./chat-interface";
 import { SmartFillDialog } from "./smart-fill-dialog";
+import { AprioriDialog } from "./apriori-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -14,6 +15,7 @@ import {
   Code2,
   TerminalSquare,
   Play,
+  GitBranch,
 } from "lucide-react";
 import {
   Dialog,
@@ -259,6 +261,7 @@ export function ProjectLayout() {
   const [mlRunning, setMlRunning] = useState(false);
   const [collaborateOpen, setCollaborateOpen] = useState(false);
   const [smartFillOpen, setSmartFillOpen] = useState(false);
+  const [aprioriOpen, setAprioriOpen] = useState(false);
   const [collaborateInput, setCollaborateInput] = useState("");
   const [collaborateBusy, setCollaborateBusy] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -1125,6 +1128,20 @@ export function ProjectLayout() {
                   Smart Fill
                 </Button>
                 <Button
+                  size="sm"
+                  onClick={() => {
+                    if (!selectedTable || !tableRows?.length) {
+                      toast.error("Load a table first");
+                      return;
+                    }
+                    setAprioriOpen(true);
+                  }}
+                  className="h-7 text-xs bg-black/30 border border-gray-700 text-zinc-300 hover:border-purple-400/40 hover:text-purple-300 gap-1"
+                >
+                  <GitBranch className="h-3 w-3" />
+                  Apriori
+                </Button>
+                <Button
                   type="button"
                   size="sm"
                   onClick={handleRunMlImputation}
@@ -1586,6 +1603,16 @@ export function ProjectLayout() {
           rows={tableRows as Record<string, unknown>[]}
           columns={tableRows.length > 0 ? Object.keys(tableRows[0] as object) : []}
           tableName={selectedTable}
+        />
+      )}
+
+      {selectedTable && tableRows && tableRows.length > 0 && (
+        <AprioriDialog
+          open={aprioriOpen}
+          onOpenChange={setAprioriOpen}
+          projectId={projectId ?? ""}
+          rows={tableRows as Record<string, unknown>[]}
+          columns={tableRows.length > 0 ? Object.keys(tableRows[0] as object) : []}
         />
       )}
 
