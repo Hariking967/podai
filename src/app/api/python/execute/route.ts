@@ -5,11 +5,13 @@ import { executionResults, projects, queryHistory } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { runPythonCode } from "@/lib/python-adapter";
 import { nanoid } from "nanoid";
+import { createHash } from "crypto";
 import {
   getProjectRole,
   getSessionUserId,
   hasWriteAccess,
 } from "@/lib/project-permissions";
+import { cacheGet, cacheSet } from "@/lib/cache";
 
 const RunPythonSchema = z.object({
   projectId: z.string().min(1),
@@ -17,6 +19,17 @@ const RunPythonSchema = z.object({
   inputData: z.unknown().optional(),
   timeoutMs: z.coerce.number().int().min(1000).max(60000).optional(),
 });
+
+type PythonResult = {
+  prints: string;
+  result: unknown;
+  error: { message: string; traceback: string } | null;
+};
+
+function buildCacheKey(code: string, inputData: unknown): string {
+  const payload = JSON.stringify({ code, inputData: inputData ?? null });
+  return "py:" + createHash("sha1").update(payload).digest("hex");
+}
 
 export async function POST(req: Request) {
   try {
@@ -49,6 +62,13 @@ export async function POST(req: Request) {
       );
     }
 
+    // Return cached result for identical code + data (10 min TTL)
+    const cacheKey = buildCacheKey(input.code, input.inputData);
+    const cached = await cacheGet<PythonResult>(cacheKey);
+    if (cached && !cached.error) {
+      return NextResponse.json(cached);
+    }
+
     const historyId = nanoid();
     await db.insert(queryHistory).values({
       id: historyId,
@@ -75,6 +95,10 @@ export async function POST(req: Request) {
         (result.error ? { error: result.error } : { output: null }),
       stdout: result.prints ?? null,
     });
+
+    if (!result.error) {
+      await cacheSet(cacheKey, result, 600);
+    }
 
     return NextResponse.json(result);
   } catch (error) {
