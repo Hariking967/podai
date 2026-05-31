@@ -7,6 +7,7 @@ import { SmartFillDialog } from "./smart-fill-dialog";
 import { AprioriDialog } from "./apriori-dialog";
 import { HistoryPanel } from "./history-panel";
 import { DestructiveGuardDialog } from "./destructive-guard-dialog";
+import { ApiHealthDialog } from "./api-health-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -19,6 +20,7 @@ import {
   Play,
   GitBranch,
   History,
+  Activity,
 } from "lucide-react";
 import {
   Dialog,
@@ -267,6 +269,7 @@ export function ProjectLayout() {
   const [aprioriOpen, setAprioriOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [destructiveGuardOpen, setDestructiveGuardOpen] = useState(false);
+  const [apiHealthOpen, setApiHealthOpen] = useState(false);
   const [pendingDestructiveMessage, setPendingDestructiveMessage] = useState("");
   const [detectedDestructivePattern, setDetectedDestructivePattern] = useState("");
   const pendingDestructiveSendRef = useRef<(() => void) | null>(null);
@@ -1183,6 +1186,14 @@ export function ProjectLayout() {
                   History
                 </Button>
                 <Button
+                  size="sm"
+                  onClick={() => setApiHealthOpen(true)}
+                  className="h-7 text-xs bg-black/30 border border-gray-700 text-zinc-300 hover:border-cyan-400/40 hover:text-cyan-300 gap-1"
+                >
+                  <Activity className="h-3 w-3" />
+                  API Status
+                </Button>
+                <Button
                   type="button"
                   size="sm"
                   onClick={handleRunMlImputation}
@@ -1682,6 +1693,13 @@ export function ProjectLayout() {
           setPendingDestructiveMessage("");
           pendingDestructiveSendRef.current = null;
         }}
+      />
+
+      <ApiHealthDialog
+        open={apiHealthOpen}
+        onOpenChange={setApiHealthOpen}
+        projectId={projectId ?? ""}
+        apiKeyCount={apiKeys?.length ?? 0}
       />
 
       <Dialog open={quickAskOpen} onOpenChange={setQuickAskOpen}>
