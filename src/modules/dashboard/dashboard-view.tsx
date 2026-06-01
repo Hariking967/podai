@@ -63,7 +63,7 @@ export default function DashboardView({ user }: { user: User }) {
   const createProject = useMutation({
     mutationFn: () => postJson("/api/project/create", { name, neonApiKey: apiKey }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", user.id] });
       setOpen(false);
       setName("");
       setApiKey("");
