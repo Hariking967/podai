@@ -213,7 +213,7 @@ export const projectInvitations = pgTable("project_invitations", {
   status: invitationStatus("status").notNull().default("pending"),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at")
-    .$defaultFn(() => new Date())
+    .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
 });
 
@@ -228,6 +228,6 @@ export const notifications = pgTable("notifications", {
   data: jsonb("data").$type<Record<string, unknown>>().default({}),
   read: boolean("read").notNull().default(false),
   createdAt: timestamp("created_at")
-    .$defaultFn(() => new Date())
+    .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
 });
