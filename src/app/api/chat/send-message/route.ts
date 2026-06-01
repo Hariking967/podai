@@ -12,7 +12,6 @@ import {
 import {
   getProjectRole,
   getSessionUserId,
-  hasWriteAccess,
 } from "@/lib/project-permissions";
 
 const LOG_PREFIX = "[SendMessage]";
@@ -47,12 +46,6 @@ export async function POST(req: Request) {
     const role = await getProjectRole(input.projectId, sessionUserId);
     if (!role) {
       return NextResponse.json({ message: "Forbidden" }, { status: 403 });
-    }
-    if (!hasWriteAccess(role)) {
-      return NextResponse.json(
-        { message: "Read-only access for this project." },
-        { status: 403 },
-      );
     }
 
     // Step 1: Get project and Neon connection string
@@ -131,6 +124,7 @@ export async function POST(req: Request) {
       message: input.message,
       neonApiKey: project.neonApiKey,
       history,
+      role: role ?? "viewer",
     });
     console.log(`${LOG_PREFIX} Agent completed`);
     console.log(`${LOG_PREFIX} Reply length: ${agentResult.reply.length}`);

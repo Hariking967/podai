@@ -26,8 +26,18 @@ export interface AgentResult {
   } | null;
 }
 
-const buildSystemPrompt = () => `
-You are XBase AI - an expert database agent with advanced SQL knowledge and multi-step planning capabilities.
+const VIEWER_READONLY_BLOCK = `CRITICAL READ-ONLY MODE — VIEWER ACCESS:
+You are operating on behalf of a VIEWER. Viewers have strictly read-only access.
+ABSOLUTE RULES — NEVER VIOLATE:
+1. You MUST NOT execute INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER, CREATE, GRANT, REVOKE, or any data-modifying SQL statement.
+2. You MUST NOT run Python code that writes to, modifies, or deletes any database records.
+3. If asked to modify data, respond: "You have viewer access. Viewers can only view data, not modify it. Ask the project owner or an editor to upgrade your role."
+4. Only SELECT queries are permitted.
+5. Python code may only READ data (pd.read_sql with SELECT queries) — no psycopg2 execute() with non-SELECT statements.
+
+`;
+
+const buildSystemPrompt = (role?: string) => `${role === "viewer" ? VIEWER_READONLY_BLOCK : ""}You are XBase AI - an expert database agent with advanced SQL knowledge and multi-step planning capabilities.
 
 ## 🎯 YOUR CORE ABILITIES:
 1. **Schema Discovery** - Automatically inspect tables, columns, and relationships
@@ -853,8 +863,7 @@ const TOOLS: ChatCompletionTool[] = [
 const FAST_MODEL = process.env.OPENAI_FAST_MODEL ?? "gpt-4.1-nano";
 const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 
-const buildFastSystemPrompt = () => `
-You are XBase AI.
+const buildFastSystemPrompt = (role?: string) => `${role === "viewer" ? VIEWER_READONLY_BLOCK : ""}You are XBase AI.
 
 Rules:
 - Use run_sql for all SQL/database actions.
@@ -868,10 +877,12 @@ export const runAgent = async ({
   message,
   neonApiKey,
   history = [],
+  role,
 }: {
   message: string;
   neonApiKey: string;
   history?: AgentMessage[];
+  role?: string;
 }): Promise<AgentResult> => {
   console.log(`${LOG_PREFIX} Starting agent run`);
   console.log(`${LOG_PREFIX} User message: ${message.substring(0, 100)}...`);
@@ -909,8 +920,8 @@ export const runAgent = async ({
   const selectedModel = useFastPath ? FAST_MODEL : DEFAULT_MODEL;
   const responseTokenBudget = useFastPath ? 420 : 900;
   const systemPrompt = useFastPath
-    ? buildFastSystemPrompt()
-    : buildSystemPrompt();
+    ? buildFastSystemPrompt(role)
+    : buildSystemPrompt(role);
 
   const createChatCompletion = (
     messages: ChatCompletionMessageParam[],

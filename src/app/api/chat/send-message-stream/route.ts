@@ -13,7 +13,6 @@ import {
 import {
   getProjectRole,
   getSessionUserId,
-  hasWriteAccess,
 } from "@/lib/project-permissions";
 
 const LOG_PREFIX = "[SendMessageStream]";
@@ -236,12 +235,6 @@ export async function POST(req: Request) {
     if (!role) {
       return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     }
-    if (!hasWriteAccess(role)) {
-      return NextResponse.json(
-        { message: "Read-only access for this project." },
-        { status: 403 },
-      );
-    }
 
     const project = await db.query.projects.findFirst({
       where: eq(projects.id, input.projectId),
@@ -344,6 +337,7 @@ export async function POST(req: Request) {
               message: input.message,
               neonApiKey,
               history,
+              role: role ?? "viewer",
             });
 
             if (agentResult.reply) {
