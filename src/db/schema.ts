@@ -165,6 +165,7 @@ export const queryHistory = pgTable("query_history", {
     .references(() => user.id, { onDelete: "cascade" }),
   query: text("query").notNull(),
   type: executionType("type").notNull(),
+  commitMessage: text("commit_message"),
   createdAt: timestamp("created_at")
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
@@ -185,4 +186,48 @@ export const projectApiKeys = pgTable("project_api_keys", {
   isActive: boolean("is_active")
     .notNull()
     .$defaultFn(() => true),
+});
+
+export const invitationStatus = pgEnum("invitation_status", [
+  "pending",
+  "accepted",
+  "declined",
+]);
+
+export const notificationType = pgEnum("notification_type", [
+  "invitation",
+  "commit",
+]);
+
+export const projectInvitations = pgTable("project_invitations", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  invitedByUserId: text("invited_by_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  invitedEmail: text("invited_email").notNull(),
+  role: collaboratorRole("role").notNull().default("viewer"),
+  token: text("token").notNull().unique(),
+  status: invitationStatus("status").notNull().default("pending"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  type: notificationType("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  data: jsonb("data").$type<Record<string, unknown>>().default({}),
+  read: boolean("read").notNull().default(false),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => new Date())
+    .notNull(),
 });
