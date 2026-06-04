@@ -231,3 +231,71 @@ export const notifications = pgTable("notifications", {
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
 });
+
+// Top 4 Features: Query Optimizer, Catalog, Test Generator, Performance Profiler
+
+export const queryOptimizations = pgTable("query_optimizations", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  originalQuery: text("original_query").notNull(),
+  suggestedQuery: text("suggested_query").notNull(),
+  explainJson: jsonb("explain_json").$type<Record<string, unknown>>(),
+  estimatedImprovement: text("estimated_improvement"),
+  appliedAt: timestamp("applied_at"),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
+
+export const dataCatalog = pgTable("data_catalog", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  tableName: text("table_name").notNull(),
+  columnName: text("column_name").notNull(),
+  columnType: text("column_type"),
+  description: text("description"),
+  tags: text("tags"),
+  lastModified: timestamp("last_modified"),
+  usageCount: text("usage_count").default("0"),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
+
+export const queryTests = pgTable("query_tests", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  queryId: text("query_id"),
+  testName: text("test_name").notNull(),
+  testSql: text("test_sql").notNull(),
+  expectedResult: jsonb("expected_result").$type<unknown>(),
+  lastRunAt: timestamp("last_run_at"),
+  lastRunStatus: text("last_run_status"),
+  lastRunError: text("last_run_error"),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
+
+export const dataQualityMetrics = pgTable("data_quality_metrics", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  tableName: text("table_name").notNull(),
+  metricType: text("metric_type").notNull(),
+  columnName: text("column_name"),
+  metricValue: text("metric_value"),
+  threshold: text("threshold"),
+  status: text("status"),
+  lastComputedAt: timestamp("last_computed_at"),
+  createdAt: timestamp("created_at")
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
