@@ -115,7 +115,12 @@ export const runPythonInDocker = async ({
 
     await ensureImageExists();
 
-    const dockerArgs = ["run", "--rm", "-v", `${tempDir}:/work`, IMAGE_NAME];
+    // Windows paths (C:\...) break Docker's -v src:dst parsing because the colon
+    // in the drive letter is mistaken for the src:dst separator. Convert to
+    // forward slashes so Docker receives a valid path: C:/Users/.../xbase-python-abc
+    const hostPath =
+      process.platform === "win32" ? tempDir.replace(/\\/g, "/") : tempDir;
+    const dockerArgs = ["run", "--rm", "-v", `${hostPath}:/work`, IMAGE_NAME];
 
     console.log(`${LOG_PREFIX} Starting Docker container...`);
     const {

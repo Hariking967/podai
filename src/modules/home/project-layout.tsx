@@ -924,6 +924,7 @@ export function ProjectLayout() {
       <CursorBackground />
 
       <ResizablePanelGroup
+        id="main-panel-group"
         direction="horizontal"
         className="relative z-10 h-full w-full"
       >
@@ -1235,6 +1236,7 @@ export function ProjectLayout() {
               </div>
             ) : (
               <ResizablePanelGroup
+                id="data-viewer-panel-group"
                 direction="horizontal"
                 className="min-h-[400px] max-h-[calc(100vh-300px)]"
               >

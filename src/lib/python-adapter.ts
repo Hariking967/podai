@@ -141,13 +141,13 @@ export const runPythonCode = async (
   console.log(`${LOG_PREFIX} Backend URL: ${backendUrl || "not set"}`);
   console.log(`${LOG_PREFIX} Docker Available: ${dockerAvailable}`);
 
-  // Priority 1: Use external Python backend if URL is configured (for production)
-  if (backendUrl && !dockerAvailable) {
+  // Priority 1: Use external Python backend if URL is configured (always preferred)
+  if (backendUrl) {
     console.log(`${LOG_PREFIX} Using external Python backend API`);
     return executePythonViaAPI(request);
   }
 
-  // Priority 2: Use local Docker if available (for development)
+  // Priority 2: Fall back to local Docker if no backend URL is set
   if (dockerAvailable) {
     console.log(`${LOG_PREFIX} Using local Docker for Python execution`);
     return runPythonInDocker(request);
